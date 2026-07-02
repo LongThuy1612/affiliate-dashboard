@@ -1,0 +1,969 @@
+'use client';
+import { useEffect, useState, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
+import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification } from '@/lib/api';
+import { StatCard } from '@/components/ui/Card';
+import Badge from '@/components/ui/Badge';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Select from '@/components/ui/Select';
+import Pagination from '@/components/ui/Pagination';
+import { useToast } from '@/components/ui/Toaster';
+import { useAuth } from '@/context/AuthContext';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight } from 'lucide-react';
+import { AffiliateSubPage } from '@/lib/api';
+import Link from 'next/link';
+import clsx from 'clsx';
+import { isRecentlyUpdated } from '@/lib/freshness';
+
+// ─── Verification components ─────────────────────────────────────────────────
+
+const VERIFY_OPTS = [
+  { value: 1, colorClass: 'text-emerald-400', icon: '✓' },
+  { value: 2, colorClass: 'text-red-400', icon: '✗' },
+  { value: 3, colorClass: 'text-amber-400', icon: '~' },
+  { value: 4, colorClass: 'text-[var(--text-muted)]', icon: '?' },
+] as const;
+
+function VerifyCell({
+  domain,
+  verification,
+  onClick,
+}: {
+  domain: string;
+  verification: AffiliateVerification | undefined;
+  onClick: () => void;
+}) {
+  const opt = verification ? VERIFY_OPTS.find((o) => o.value === verification.option) : null;
+  return (
+    <button
+      onClick={onClick}
+      title={verification?.note ?? (opt ? String(opt.value) : 'No verification')}
+      className={clsx(
+        'w-7 h-7 rounded-md border text-xs font-bold transition-colors',
+        opt
+          ? `border-transparent bg-[var(--surface-2)] ${opt.colorClass}`
+          : 'border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]',
+      )}
+    >
+      {opt ? opt.icon : '+'}
+    </button>
+  );
+}
+
+function VerifyModal({
+  domain,
+  current,
+  onSave,
+  onClear,
+  onClose,
+}: {
+  domain: string;
+  current: AffiliateVerification | undefined;
+  onSave: (v: AffiliateVerification) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const t = useTranslations('affiliate.verify');
+  const { toast } = useToast();
+  const [option, setOption] = useState<number>(current?.option ?? 0);
+  const [note, setNote] = useState(current?.note ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const needsNote = option === 2 || option === 3 || option === 4;
+
+  const handleSave = async () => {
+    if (!option) return;
+    setSaving(true);
+    try {
+      const result = await verificationApi.submit(domain, option, needsNote ? note : null);
+      onSave(result);
+      toast(t('submitted'), { type: 'success' });
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Error', { type: 'error' });
+    } finally { setSaving(false); }
+  };
+
+  const handleClear = async () => {
+    if (!current) return;
+    setSaving(true);
+    try {
+      await verificationApi.delete(domain);
+      onClear();
+      toast(t('cleared'), { type: 'success' });
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Error', { type: 'error' });
+    } finally { setSaving(false); }
+  };
+
+  const OPTION_LABELS: Record<number, string> = {
+    1: t('option1'),
+    2: t('option2'),
+    3: t('option3'),
+    4: t('option4'),
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+      <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--text)]">{t('title', { domain })}</h2>
+          <p className="mt-0.5 font-mono text-xs text-indigo-400 truncate">{domain}</p>
+        </div>
+
+        <div className="space-y-1.5">
+          {([1, 2, 3, 4] as const).map((val) => (
+            <label key={val} className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+              <input
+                type="radio"
+                name="verify-option"
+                checked={option === val}
+                onChange={() => setOption(val)}
+                className="accent-[var(--accent)]"
+              />
+              <span className={clsx(
+                'font-medium',
+                VERIFY_OPTS.find((o) => o.value === val)?.colorClass,
+              )}>
+                {OPTION_LABELS[val]}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {needsNote && (
+          <textarea
+            className="w-full rounded-md border bg-[var(--surface-2)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] h-24 resize-y"
+            placeholder={t('notePlaceholder')}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={handleSave}
+            disabled={!option || saving}
+            className="flex-1 py-2 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {saving ? '…' : t('submit')}
+          </button>
+          {current && (
+            <button
+              onClick={handleClear}
+              disabled={saving}
+              className="px-3 py-2 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--danger)]/10 hover:text-[var(--danger)] transition-colors disabled:opacity-50"
+            >
+              {t('clear')}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--surface-2)] transition-colors"
+          >
+            {t('cancel')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function typeVariant(t: CommissionType) {
+  if (t === 'recurring') return 'success';
+  if (t === 'one_time') return 'accent';
+  return 'muted';
+}
+
+function scoreRowBorder(score: number) {
+  if (score >= 85) return 'border-l-2 border-l-emerald-500';
+  if (score >= 70) return 'border-l-2 border-l-green-500';
+  if (score >= 50) return 'border-l-2 border-l-amber-500';
+  if (score >= 30) return 'border-l-2 border-l-orange-500';
+  return 'border-l-2 border-l-red-600';
+}
+
+function CookieCell({ days }: { days: number | null }) {
+  if (days == null) return <span className="text-[var(--text-muted)]">—</span>;
+  const cls =
+    days >= 60 ? 'text-emerald-400' :
+      days >= 30 ? 'text-green-400' :
+        days >= 14 ? 'text-amber-400' : 'text-orange-400';
+  return <span className={clsx('font-mono text-xs', cls)}>{days}d</span>;
+}
+
+// ─── Fetch-tier cell ─────────────────────────────────────────────────────────
+
+const FETCH_TIER_META: Record<number, { label: string; icon: string; bg: string; text: string }> = {
+  1: { label: 'Axios', icon: '⚡', bg: 'bg-blue-900/30', text: 'text-blue-300' },
+  2: { label: 'Playwright', icon: '🎭', bg: 'bg-amber-900/30', text: 'text-amber-300' },
+  3: { label: 'FlareSolverr', icon: '🔥', bg: 'bg-orange-900/30', text: 'text-orange-300' },
+};
+
+function FetchTierCell({ tier, error }: { tier: number | null; error: string | null }) {
+  if (tier == null) {
+    const title = error ? `All tiers failed — ${error}` : 'No fetch attempt recorded';
+    return (
+      <span
+        title={title}
+        className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 font-semibold cursor-default"
+      >
+        ✗ {error ?? '—'}
+      </span>
+    );
+  }
+  const meta = FETCH_TIER_META[tier] ?? { label: `T${tier}`, icon: '?', bg: 'bg-[var(--surface-2)]', text: 'text-[var(--text-muted)]' };
+  const tooltip = error
+    ? `T${tier} ${meta.label} succeeded (previous tiers failed with: ${error})`
+    : `T${tier} ${meta.label} — fetched directly`;
+  return (
+    <span
+      title={tooltip}
+      className={clsx('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-semibold cursor-default', meta.bg, meta.text)}
+    >
+      {meta.icon} T{tier}
+    </span>
+  );
+}
+
+const SOURCE_COLORS: Record<string, string> = {
+  web_crawl: 'bg-blue-900/40 text-blue-300',
+  llm_extract: 'bg-purple-900/40 text-purple-300',
+  partnerstack_marketplace: 'bg-emerald-900/40 text-emerald-300',
+};
+
+function SourceBadge({ source, llmModel }: { source: string | null; llmModel?: string | null }) {
+  if (!source) return <span className="text-[var(--text-muted)] text-xs">—</span>;
+  const cls = SOURCE_COLORS[source] ?? 'bg-[var(--surface-2)] text-[var(--text-muted)]';
+  let short = source.replace('_marketplace', '').replace(/_/g, ' ');
+  if (source === 'llm_extract' && llmModel) {
+    short += ` - ${llmModel}`;
+  }
+  return (
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium', cls)}>
+      {short}
+    </span>
+  );
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const cfg =
+    score >= 85 ? { bg: 'bg-emerald-500/20', text: 'text-emerald-300', ring: 'ring-emerald-500/40' } :
+      score >= 70 ? { bg: 'bg-green-500/20', text: 'text-green-300', ring: 'ring-green-500/30' } :
+        score >= 50 ? { bg: 'bg-amber-500/20', text: 'text-amber-300', ring: 'ring-amber-500/30' } :
+          score >= 30 ? { bg: 'bg-orange-500/20', text: 'text-orange-300', ring: 'ring-orange-500/30' } :
+            { bg: 'bg-red-500/20', text: 'text-red-300', ring: 'ring-red-500/30' };
+  return (
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ring-1', cfg.bg, cfg.text, cfg.ring)}>
+      {score}
+    </span>
+  );
+}
+
+export default function AffiliatePage() {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const isSuperAdmin = (user?.permissions ?? []).includes('all:manage');
+  const t = useTranslations('affiliate');
+  const tc = useTranslations('common');
+
+  const [stats, setStats] = useState<AffiliateStats | null>(null);
+  const [items, setItems] = useState<AffiliateProgram[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [deletingDomain, setDeleting] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [batchRecrawling, setBatchRecrawling] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [recrawlModal, setRecrawlModal] = useState<{ domain: string; mode: 'web' | 'llm'; model: string } | null>(null);
+  const [batchRecrawlModal, setBatchRecrawlModal] = useState<{ mode: 'web' | 'llm'; model: string } | null>(null);
+  const [recrawling, setRecrawling] = useState<string | null>(null);
+  const [verifications, setVerifications] = useState<Map<string, AffiliateVerification>>(new Map());
+  const [verifyModal, setVerifyModal] = useState<string | null>(null);
+  const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
+  const [subPageCache, setSubPageCache] = useState<Map<string, AffiliateSubPage[]>>(new Map());
+  const [subPageLoading, setSubPageLoading] = useState<Set<string>>(new Set());
+  const [params, setParams] = useState<AffiliateListParams>({ page: 1, limit: 50, orderBy: 'crawledAt', order: 'desc' });
+  const [search, setSearch] = useState('');
+  const [commissionFilter, setCommissionFilter] = useState('');
+  const [scoreFilter, setScoreFilter] = useState('');
+
+  const TYPE_OPTIONS = [
+    { value: '', label: t('filters.allTypes') },
+    { value: 'one_time', label: t('badge.oneTime') },
+    { value: 'recurring', label: t('badge.recurring') },
+    { value: 'unknown', label: t('badge.unknown') },
+  ];
+  const COMMISSION_FILTER_OPTIONS = [
+    { value: '', label: t('filters.allCommission') },
+    { value: 'has', label: t('filters.hasCommission') },
+    { value: 'none', label: t('filters.noCommission') },
+  ];
+  const SCORE_FILTER_OPTIONS = [
+    { value: '', label: t('filters.anyScore') },
+    { value: '80', label: '≥ 80 (Excellent)' },
+    { value: '60', label: '≥ 60 (Good)' },
+    { value: '40', label: '≥ 40 (Fair)' },
+    { value: '0-39', label: '< 40 (Poor)' },
+  ];
+  const ORDER_BY_OPTIONS = [
+    { value: 'crawledAt', label: t('filters.crawledAt') },
+    { value: 'updatedAt', label: t('filters.updatedAt') },
+    { value: 'confidence', label: t('filters.confidence') },
+    { value: 'domain', label: t('filters.domain') },
+  ];
+
+  // Filtering is now fully server-side — items is already the filtered page slice.
+  const filteredItems = items;
+
+  const fetchData = useCallback(async (p: AffiliateListParams) => {
+    setLoading(true);
+    setSelected(new Set());
+    try {
+      const [res, s] = await Promise.all([
+        affiliateApi.list(p),
+        stats ? Promise.resolve(stats) : affiliateApi.stats(),
+      ]);
+      setItems(res.items);
+      setTotal(res.total);
+      setPages(res.pages);
+      if (!stats) setStats(s as AffiliateStats);
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Failed to load', { type: 'error' });
+    } finally { setLoading(false); }
+  }, [stats, toast]);
+
+  useEffect(() => { fetchData(params); }, []);
+
+  useEffect(() => {
+    verificationApi.listByUser()
+      .then((list) => setVerifications(new Map(list.map((v) => [v.domain, v]))))
+      .catch(() => { });
+  }, []);
+
+  const applyParams = (next: AffiliateListParams) => { setParams(next); fetchData(next); };
+  const handleSearch = () => applyParams({ ...params, page: 1, domain: search || undefined });
+
+  const handleDelete = async (domain: string) => {
+    if (!confirm(t('deleteConfirm', { domain }))) return;
+    setDeleting(domain);
+    try {
+      await affiliateApi.delete(domain);
+      toast(t('deleteSuccess', { domain }), { type: 'success' });
+      fetchData(params);
+    } catch { toast(t('deleteFailed'), { type: 'error' }); }
+    finally { setDeleting(null); }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selected.size) return;
+    if (!confirm(t('bulkDeleteConfirm', { count: selected.size }))) return;
+    setBulkDeleting(true);
+    let ok = 0; let fail = 0;
+    for (const domain of selected) {
+      try { await affiliateApi.delete(domain); ok++; } catch { fail++; }
+    }
+    setBulkDeleting(false);
+    toast(t('bulkDeleteResult', { ok, fail }), { type: ok > 0 ? 'success' : 'error' });
+    fetchData(params);
+  };
+
+  const RECRAWL_MODEL_OPTIONS = [
+    { value: '', label: 'Auto (tier-based)', group: 'ollama' },
+    { value: 'deepseek-coder', label: 'deepseek-coder  —  score < 40 (Low)', group: 'ollama' },
+    { value: 'phi4', label: 'phi4  —  score 40–60 (Mid)', group: 'ollama' },
+    { value: 'mistral', label: 'mistral  —  score ≥ 60 (High)', group: 'ollama' },
+    { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash  —  Google (Free, Best)', group: 'gemini' },
+    { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash  —  Google (Free, Fast)', group: 'gemini' },
+    { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash  —  Google (Free)', group: 'gemini' },
+    { value: 'gemini-1.5-flash-8b', label: 'gemini-1.5-flash-8b  —  Google (Free, Lite)', group: 'gemini' },
+  ];
+
+  const handleRecrawl = async () => {
+    if (!recrawlModal) return;
+    const { domain, mode, model } = recrawlModal;
+    setRecrawlModal(null);
+    setRecrawling(domain);
+    try {
+      if (mode === 'web') {
+        await crawlAffiliateApi.crawlDomains({ domains: [domain], force: true });
+        toast(`Re-crawl queued for ${domain}`, { type: 'success' });
+      } else {
+        const res = await crawlAffiliateApi.llmImprove([domain], model || undefined);
+        toast(
+          res.improved > 0 ? t('llmImproveSuccess', { domain }) : t('llmImproveNoChange', { domain }),
+          { type: res.improved > 0 ? 'success' : 'info' },
+        );
+      }
+      fetchData(params);
+    } catch { toast(t('llmImproveFailed'), { type: 'error' }); }
+    finally { setRecrawling(null); }
+  };
+
+  const handleBatchRecrawl = async () => {
+    if (!batchRecrawlModal || !selected.size) return;
+    const { mode, model } = batchRecrawlModal;
+    const domains = Array.from(selected);
+    setBatchRecrawlModal(null);
+    setBatchRecrawling(true);
+    try {
+      if (mode === 'web') {
+        await crawlAffiliateApi.crawlDomains({ domains, force: true });
+        toast(`Re-crawl queued for ${domains.length} domain${domains.length > 1 ? 's' : ''}`, { type: 'success' });
+      } else {
+        const res = await crawlAffiliateApi.llmImprove(domains, model || undefined);
+        toast(t('bulkLlmImproveResult', { improved: res.improved, total: res.total }), { type: 'success' });
+      }
+      fetchData(params);
+    } catch { toast(t('llmImproveFailed'), { type: 'error' }); }
+    finally { setBatchRecrawling(false); }
+  };
+
+  const allSelected = filteredItems.length > 0 && filteredItems.every(i => selected.has(i.domain));
+  const someSelected = filteredItems.some(i => selected.has(i.domain)) && !allSelected;
+  const toggleAll = () => {
+    if (allSelected) setSelected(prev => { const s = new Set(prev); filteredItems.forEach(i => s.delete(i.domain)); return s; });
+    else setSelected(prev => { const s = new Set(prev); filteredItems.forEach(i => s.add(i.domain)); return s; });
+  };
+  const toggleOne = (domain: string) =>
+    setSelected(prev => { const s = new Set(prev); s.has(domain) ? s.delete(domain) : s.add(domain); return s; });
+  const refreshStats = async () => { try { setStats(await affiliateApi.stats()); } catch { } };
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-[var(--text)]">{t('title')}</h1>
+          <p className="text-sm text-[var(--text-muted)] mt-0.5">{t('subtitle')}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" size="sm" icon={<RefreshCw size={13} />}
+            onClick={() => { refreshStats(); fetchData(params); }}>
+            {tc('refresh')}
+          </Button>
+          <Link href="/affiliate/stats">
+            <Button variant="secondary" size="sm" icon={<BarChart2 size={13} />}>{t('statsButton')}</Button>
+          </Link>
+          <Link href="/affiliate/actions">
+            <Button size="sm">{t('crawlAdd')}</Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <StatCard label={t('stats.totalPrograms')} value={stats.total.toLocaleString()} />
+          <StatCard label={t('stats.withCommission')} value={stats.withCommissionRate.toLocaleString()} color="text-green-400" />
+          <StatCard label={t('stats.withCookie')} value={stats.withCookieDays.toLocaleString()} color="text-amber-400" />
+          <StatCard label={t('stats.avgScore')} value={`${Math.round(stats.avgConfidence * 100)}`} />
+          <div className="rounded-lg border bg-[var(--surface)] border-[var(--border)] p-4">
+            <p className="text-xs text-[var(--text-muted)] mb-2">{t('stats.commissionTypes')}</p>
+            <div className="space-y-1.5">
+              {[
+                { key: 'recurring', label: t('stats.recurring'), color: 'text-green-400', dot: 'bg-green-400' },
+                { key: 'one_time', label: t('stats.oneTime'), color: 'text-indigo-400', dot: 'bg-indigo-400' },
+                { key: 'unknown', label: t('stats.unknown'), color: 'text-[var(--text-muted)]', dot: 'bg-[var(--border)]' },
+              ].map(({ key, label, color, dot }) => {
+                const count = stats.byCommissionType[key] ?? 0;
+                if (!count) return null;
+                return (
+                  <div key={key} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                      <span className="text-xs text-[var(--text-muted)]">{label}</span>
+                    </div>
+                    <span className={`text-xs font-semibold tabular-nums ${color}`}>{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Score legend */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs text-[var(--text-muted)]">
+        <span className="font-medium text-[var(--text)] shrink-0">{t('legend.title')}</span>
+        {[
+          { range: '85–100', label: t('legend.excellent'), color: 'bg-emerald-500', text: 'text-emerald-300' },
+          { range: '70–84', label: t('legend.good'), color: 'bg-green-500', text: 'text-green-300' },
+          { range: '50–69', label: t('legend.medium'), color: 'bg-amber-500', text: 'text-amber-300' },
+          { range: '30–49', label: t('legend.low'), color: 'bg-orange-500', text: 'text-orange-300' },
+          { range: '0–29', label: t('legend.veryLow'), color: 'bg-red-600', text: 'text-red-300' },
+        ].map(({ range, label, color, text }) => (
+          <div key={range} className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
+            <span className={text}>{range}</span>
+            <span>{label}</span>
+          </div>
+        ))}
+        <span className="ml-auto flex items-center gap-3 shrink-0">
+          <span className="flex items-center gap-1">
+            <span className="text-[10px] font-bold px-1 py-px rounded bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40">{t('newBadge')}</span>
+            <span>{t('legend.newHint')}</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <RotateCw size={11} className="text-sky-400" />
+            <span>{t('legend.recrawlHint')}</span>
+          </span>
+        </span>
+      </div>
+
+      {/* Filters */}
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex gap-2 flex-1 min-w-[180px]">
+            <Input placeholder={t('filters.searchPlaceholder')} value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className="flex-1" />
+            <Button size="sm" icon={<Search size={13} />} onClick={handleSearch}>{tc('search')}</Button>
+          </div>
+          <Select label={t('filters.type')}
+            value={params.commissionType ?? ''}
+            onValueChange={(v) => applyParams({ ...params, page: 1, commissionType: (v || undefined) as CommissionType | undefined })}
+            options={TYPE_OPTIONS} />
+          <Select label={t('filters.commissionRate')}
+            value={commissionFilter}
+            onValueChange={(v) => {
+              setCommissionFilter(v);
+              applyParams({
+                ...params, page: 1,
+                hasCommission: v === 'has' ? true : v === 'none' ? false : undefined,
+              });
+            }}
+            options={COMMISSION_FILTER_OPTIONS} />
+          <Select label={t('filters.score')}
+            value={scoreFilter}
+            onValueChange={(v) => {
+              setScoreFilter(v);
+              applyParams({
+                ...params, page: 1,
+                scoreMin: v && v !== '0-39' ? Number(v) : undefined,
+                scoreMax: v === '0-39' ? 39 : undefined,
+              });
+            }}
+            options={SCORE_FILTER_OPTIONS} />
+          <Select label={t('filters.sortBy')}
+            value={params.orderBy}
+            onValueChange={(v) => applyParams({ ...params, page: 1, orderBy: v as AffiliateListParams['orderBy'] })}
+            options={ORDER_BY_OPTIONS} />
+          <Button variant="ghost" size="sm"
+            icon={params.order === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            onClick={() => applyParams({ ...params, order: params.order === 'asc' ? 'desc' : 'asc' })}>
+            {params.order === 'asc' ? tc('asc') : tc('desc')}
+          </Button>
+          <Select label={t('filters.perPage')}
+            value={String(params.limit)}
+            onValueChange={(v) => applyParams({ ...params, page: 1, limit: Number(v) })}
+            options={[20, 50, 100, 200].map((n) => ({ value: String(n), label: String(n) }))} />
+        </div>
+      </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-[var(--accent)]/40 bg-indigo-950/30">
+          <span className="text-sm text-indigo-300 font-medium">{tc('selected', { count: selected.size })}</span>
+          {isSuperAdmin && (
+            <Button variant="danger" size="sm" loading={bulkDeleting} icon={<Trash2 size={12} />} onClick={handleBulkDelete}>
+              {tc('deleteSelected')}
+            </Button>
+          )}
+          {isSuperAdmin && (
+            <Button variant="secondary" size="sm" loading={batchRecrawling} icon={<RefreshCcw size={12} className="text-sky-400" />} onClick={() => setBatchRecrawlModal({ mode: 'web', model: '' })}>
+              Re-crawl Selected
+            </Button>
+          )}
+          {/* <button className="ml-auto text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+            onClick={() => setSelected(new Set())}>
+            {tc('clearSelection')}
+          </button> */}
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] bg-[var(--surface-2)]">
+                <th className="px-3 py-3 w-8">
+                  <button onClick={toggleAll} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                    {allSelected ? <CheckSquare size={14} className="text-[var(--accent)]" /> :
+                      someSelected ? <Minus size={14} /> : <Square size={14} />}
+                  </button>
+                </th>
+                {[t('table.id'), t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), t('table.score'), t('table.updated'), t('table.source'), t('table.fetchTier'), t('table.verify'), ''].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={12} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
+              ) : filteredItems.length === 0 ? (
+                <tr><td colSpan={12} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
+              ) : (
+                filteredItems.flatMap((item, idx) => {
+                  const isSelected = selected.has(item.domain);
+                  const hasSubPages = (item.subProgramCount ?? 0) > 0;
+                  const isExpanded = expandedDomains.has(item.domain);
+                  const isLoadingSub = subPageLoading.has(item.domain);
+                  const cachedSubs = subPageCache.get(item.domain) ?? [];
+
+                  const toggleExpand = async () => {
+                    const next = new Set(expandedDomains);
+                    if (isExpanded) { next.delete(item.domain); setExpandedDomains(next); return; }
+                    next.add(item.domain);
+                    setExpandedDomains(next);
+                    if (!subPageCache.has(item.domain)) {
+                      setSubPageLoading(prev => new Set(prev).add(item.domain));
+                      try {
+                        const tree = await affiliateApi.getTree(item.domain);
+                        setSubPageCache(prev => new Map(prev).set(item.domain, tree.subPages));
+                      } catch { /* ignore */ }
+                      finally { setSubPageLoading(prev => { const s = new Set(prev); s.delete(item.domain); return s; }); }
+                    }
+                  };
+
+                  const mainRow = (
+                    <tr key={item.domain}
+                      className={clsx(
+                        'border-b border-[var(--border)] transition-colors',
+                        scoreRowBorder(item.affiliateScore),
+                        isSelected ? 'bg-indigo-950/30' : 'hover:bg-[var(--surface-2)]',
+                      )}>
+                      <td className="px-3 py-3">
+                        <button onClick={() => toggleOne(item.domain)} className="text-[var(--text-muted)] hover:text-[var(--accent)]">
+                          {isSelected ? <CheckSquare size={14} className="text-[var(--accent)]" /> : <Square size={14} />}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[var(--text-muted)] tabular-nums w-12">
+                        {(Math.max(1, params.page ?? 1) - 1) * (params.limit ?? 50) + idx + 1}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs max-w-[180px]">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {hasSubPages && (
+                            <button
+                              onClick={toggleExpand}
+                              title={`${item.subProgramCount} sub-programs`}
+                              className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded bg-indigo-900/40 text-indigo-300 hover:bg-indigo-800/50"
+                            >
+                              <Layers size={9} />
+                              {item.subProgramCount}
+                              <ChevronRight size={9} className={clsx('transition-transform', isExpanded && 'rotate-90')} />
+                            </button>
+                          )}
+                          <Link href={`/affiliate/${encodeURIComponent(item.domain)}`}
+                            className="text-indigo-400 hover:underline truncate">
+                            {item.domain}
+                          </Link>
+                          {item.signupUrlVerified && <BadgeCheck size={12} className="text-emerald-400 shrink-0" />}
+                          {item.llmEnriched && <Sparkles size={11} className="text-purple-400 shrink-0" />}
+                          {item.crawlCount <= 1 && isRecentlyUpdated(item.crawledAt) && (
+                            <span className="shrink-0 text-[10px] font-bold px-1 py-px rounded bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40">
+                              {t('newBadge')}
+                            </span>
+                          )}
+                          {item.crawlCount > 1 && isRecentlyUpdated(item.updatedAt) && (
+                            <span title={t('recrawledAt', { time: new Date(item.updatedAt).toLocaleString() })}
+                              className="shrink-0 cursor-default">
+                              <RotateCw size={11} className="text-sky-400" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-[var(--text)] max-w-[150px] truncate text-xs">
+                        {item.programName ?? <span className="text-[var(--text-muted)]">—</span>}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs max-w-[120px] truncate" title={item.commissionRate || undefined}>
+                        {item.commissionRate
+                          ? <span className="text-green-400">{item.commissionRate}</span>
+                          : <span className="text-[var(--text-muted)]">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant={typeVariant(item.commissionType)}>
+                          {item.commissionType === 'one_time' ? t('badge.oneTime') :
+                            item.commissionType === 'recurring' ? t('badge.recurring') : t('badge.unknown')}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3"><CookieCell days={item.cookieDays} /></td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <ScoreBadge score={item.affiliateScore} />
+                          {item.previousScore != null && item.previousScore !== item.affiliateScore && isRecentlyUpdated(item.updatedAt) && (() => {
+                            const delta = item.affiliateScore - item.previousScore!;
+                            return delta > 0
+                              ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-300"><TrendingUp size={10} />+{delta}</span>
+                              : <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-300"><TrendingDown size={10} />{delta}</span>;
+                          })()}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[var(--text-muted)] whitespace-nowrap tabular-nums">
+                        {new Date(item.updatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="px-4 py-3"><SourceBadge source={item.dataSource} llmModel={item.llmModel} /></td>
+                      <td className="px-4 py-3">
+                        <FetchTierCell tier={item.fetchTierReached} error={item.lastFetchError} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <VerifyCell
+                          domain={item.domain}
+                          verification={verifications.get(item.domain)}
+                          onClick={() => setVerifyModal(item.domain)}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          {item.signupUrl && (
+                            <a href={item.signupUrl} target="_blank" rel="noopener noreferrer">
+                              <Button variant="ghost" size="sm" icon={<ExternalLink size={12} />} />
+                            </a>
+                          )}
+                          {isSuperAdmin && (
+                            <Button variant="ghost" size="sm"
+                              loading={recrawling === item.domain}
+                              title="Re-crawl"
+                              icon={<RefreshCcw size={12} className="text-sky-400" />}
+                              onClick={() => setRecrawlModal({ domain: item.domain, mode: 'web', model: '' })} />
+                          )}
+                          {isSuperAdmin && (
+                            <Button variant="ghost" size="sm"
+                              loading={deletingDomain === item.domain}
+                              icon={<Trash2 size={12} className="text-red-400" />}
+                              onClick={() => handleDelete(item.domain)} />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+
+                  const subRows = isExpanded ? (
+                    isLoadingSub ? (
+                      <tr key={`${item.domain}__loading`} className="bg-[var(--surface-2)]/40">
+                        <td colSpan={13} className="px-10 py-2 text-xs text-[var(--text-muted)] animate-pulse">
+                          Loading sub-programs…
+                        </td>
+                      </tr>
+                    ) : cachedSubs.map(sp => (
+                      <tr key={`${item.domain}__${sp.id}`}
+                        className="border-b border-[var(--border)]/50 bg-[var(--surface-2)]/30 hover:bg-[var(--surface-2)]/60">
+                        <td colSpan={2} />
+                        <td className="pl-8 pr-2 py-2 font-mono text-[11px] max-w-[200px]">
+                          <a href={sp.pageUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-indigo-300/80 hover:text-indigo-300 hover:underline flex items-center gap-1 truncate"
+                            title={sp.pageUrl}>
+                            <ChevronRight size={10} className="shrink-0 text-[var(--text-muted)]" />
+                            {sp.pagePath}
+                            <ExternalLink size={9} className="shrink-0 opacity-40" />
+                          </a>
+                        </td>
+                        <td className="px-2 py-2 text-[11px] text-[var(--text-muted)] max-w-[120px] truncate">
+                          {sp.programName ?? '—'}
+                        </td>
+                        <td className="px-2 py-2 font-mono text-[11px]">
+                          {sp.commissionRate
+                            ? <span className="text-green-400">{sp.commissionRate}</span>
+                            : <span className="text-[var(--text-muted)]">—</span>}
+                        </td>
+                        <td className="px-2 py-2">
+                          <Badge variant={typeVariant(sp.commissionType as CommissionType)}>
+                            {sp.commissionType === 'one_time' ? t('badge.oneTime') :
+                              sp.commissionType === 'recurring' ? t('badge.recurring') : t('badge.unknown')}
+                          </Badge>
+                        </td>
+                        <td className="px-2 py-2"><CookieCell days={sp.cookieDays} /></td>
+                        <td className="px-2 py-2">
+                          <ScoreBadge score={sp.affiliateScore} />
+                        </td>
+                        <td colSpan={5} className="px-2 py-2">
+                          {sp.hasSignupForm && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">
+                              {sp.signupFormType ?? 'form'}
+                            </span>
+                          )}
+                          {sp.affiliateNetwork && (
+                            <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-900/40 text-indigo-300">
+                              {sp.affiliateNetwork}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : null;
+
+                  return [mainRow, subRows].flat().filter(Boolean);
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <Pagination
+          page={params.page ?? 1} pages={pages} total={total} limit={params.limit ?? 50}
+          onChange={(p) => applyParams({ ...params, page: p })}
+        />
+      </div>
+
+      {/* Verify modal */}
+      {verifyModal && (
+        <VerifyModal
+          domain={verifyModal}
+          current={verifications.get(verifyModal)}
+          onSave={(v) => {
+            setVerifications((prev) => new Map(prev).set(v.domain, v));
+            setVerifyModal(null);
+          }}
+          onClear={() => {
+            setVerifications((prev) => { const m = new Map(prev); m.delete(verifyModal); return m; });
+            setVerifyModal(null);
+          }}
+          onClose={() => setVerifyModal(null)}
+        />
+      )}
+
+      {/* Re-crawl popup */}
+      {recrawlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="relative w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl">
+            <button
+              className="absolute right-3 top-3 text-[var(--text-muted)] hover:text-[var(--text)]"
+              onClick={() => setRecrawlModal(null)}
+            >
+              <X size={16} />
+            </button>
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Re-crawl</h2>
+              <p className="mt-0.5 font-mono text-xs text-indigo-400 truncate">{recrawlModal.domain}</p>
+            </div>
+            <div className="flex gap-2 mb-4">
+              {(['web', 'llm'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setRecrawlModal(m => m ? { ...m, mode, model: '' } : m)}
+                  className={clsx(
+                    'flex-1 py-2 rounded-lg border text-xs font-medium transition-colors',
+                    recrawlModal.mode === mode
+                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                      : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50 hover:text-[var(--text)]',
+                  )}
+                >
+                  {mode === 'web' ? 'Web Crawl' : 'LLM Re-crawl'}
+                </button>
+              ))}
+            </div>
+            {recrawlModal.mode === 'web' ? (
+              <p className="text-xs text-[var(--text-muted)] mb-5">
+                Force a fresh web crawl — re-fetches the site and extracts data without LLM.
+              </p>
+            ) : (
+              <div className="mb-5 space-y-1">
+                <p className="text-xs text-[var(--text-muted)] mb-2">Select the LLM model for extraction:</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] px-1 mb-1">Ollama (local)</p>
+                {RECRAWL_MODEL_OPTIONS.filter(o => o.group === 'ollama').map(({ value, label }) => (
+                  <label key={value} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+                    <input
+                      type="radio"
+                      name="recrawl-model"
+                      value={value}
+                      checked={recrawlModal.model === value}
+                      onChange={() => setRecrawlModal(m => m ? { ...m, model: value } : m)}
+                      className="accent-[var(--accent)]"
+                    />
+                    <span className={value === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text)]'}>{label}</span>
+                  </label>
+                ))}
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] px-1 pt-2 mb-1">Gemini (Google · free · single domain only)</p>
+                {RECRAWL_MODEL_OPTIONS.filter(o => o.group === 'gemini').map(({ value, label }) => (
+                  <label key={value} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+                    <input
+                      type="radio"
+                      name="recrawl-model"
+                      value={value}
+                      checked={recrawlModal.model === value}
+                      onChange={() => setRecrawlModal(m => m ? { ...m, model: value } : m)}
+                      className="accent-[var(--accent)]"
+                    />
+                    <span className="text-[var(--text)]">{label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setRecrawlModal(null)}>Cancel</Button>
+              <Button size="sm" icon={<RefreshCcw size={12} />} onClick={handleRecrawl}>
+                {recrawlModal.mode === 'web' ? 'Re-crawl' : 'Run LLM'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch re-crawl popup */}
+      {batchRecrawlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="relative w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl">
+            <button
+              className="absolute right-3 top-3 text-[var(--text-muted)] hover:text-[var(--text)]"
+              onClick={() => setBatchRecrawlModal(null)}
+            >
+              <X size={16} />
+            </button>
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Re-crawl Selected</h2>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">{selected.size} domain{selected.size > 1 ? 's' : ''} selected</p>
+            </div>
+            <div className="flex gap-2 mb-4">
+              {(['web', 'llm'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setBatchRecrawlModal(m => m ? { ...m, mode, model: '' } : m)}
+                  className={clsx(
+                    'flex-1 py-2 rounded-lg border text-xs font-medium transition-colors',
+                    batchRecrawlModal.mode === mode
+                      ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                      : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50 hover:text-[var(--text)]',
+                  )}
+                >
+                  {mode === 'web' ? 'Web Crawl' : 'LLM Re-crawl'}
+                </button>
+              ))}
+            </div>
+            {batchRecrawlModal.mode === 'web' ? (
+              <p className="text-xs text-[var(--text-muted)] mb-5">
+                Force a fresh web crawl for all selected domains — no LLM.
+              </p>
+            ) : (
+              <div className="mb-5 space-y-1">
+                <p className="text-xs text-[var(--text-muted)] mb-2">Select the LLM model for extraction:</p>
+                <p className="text-xs text-amber-400/80 mb-2">⚠ Gemini supports single-domain only — use Ollama for bulk.</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] px-1 mb-1">Ollama (local)</p>
+                {RECRAWL_MODEL_OPTIONS.filter(o => o.group === 'ollama').map(({ value, label }) => (
+                  <label key={value} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+                    <input
+                      type="radio"
+                      name="batch-recrawl-model"
+                      value={value}
+                      checked={batchRecrawlModal.model === value}
+                      onChange={() => setBatchRecrawlModal(m => m ? { ...m, model: value } : m)}
+                      className="accent-[var(--accent)]"
+                    />
+                    <span className={value === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text)]'}>{label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setBatchRecrawlModal(null)}>Cancel</Button>
+              <Button size="sm" icon={<RefreshCcw size={12} />} onClick={handleBatchRecrawl}>
+                {batchRecrawlModal.mode === 'web' ? 'Re-crawl All' : 'Run LLM on All'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
