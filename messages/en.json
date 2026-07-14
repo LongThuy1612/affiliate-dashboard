@@ -165,7 +165,10 @@
       "updatedAt": "Updated At",
       "confidence": "Confidence",
       "domain": "Domain",
-      "perPage": "Per page"
+      "perPage": "Per page",
+      "dateField": "Date Field",
+      "dateFrom": "From",
+      "dateTo": "To"
     },
     "table": {
       "id": "ID",
@@ -221,6 +224,18 @@
       "submitted": "Verification saved",
       "cleared": "Verification cleared",
       "title": "Verify: {domain}"
+    },
+    "export": {
+      "button": "Download Excel",
+      "title": "Choose columns to export",
+      "hint": "Domain is always included. Uncheck any columns you don't need.",
+      "maxRows": "Max rows",
+      "maxRowsPlaceholder": "All (up to 50,000)",
+      "maxRowsHint": "Leave empty to export all matching rows, up to the limit.",
+      "confirm": "Download",
+      "cancel": "Cancel",
+      "failed": "Export failed",
+      "rowCapExceeded": "Too many rows to export ({total}, max {maxRows}). Narrow your filters and try again."
     }
   },
   "affiliateDetail": {
@@ -383,11 +398,21 @@
       "domainsLabel": "Domain list",
       "domainsCount": "({count} domains)",
       "domainsHint": "One plain domain per line (no https://). Blank lines are ignored.",
+      "duplicatesRemoved": "Removed {count} duplicate domains",
       "forceLabel": "Force re-crawl",
       "forceHint": "Re-crawl all even if they have recent data.",
       "button": "Crawl Domains",
+      "stopButton": "Stop",
+      "stopMessage": "Stop signal sent.",
       "validationError": "Enter at least one domain",
-      "successMessage": "Queued {count} domains"
+      "tooManyDomains": "Maximum {max} domains per run",
+      "successMessage": "Queued {count} domains",
+      "phaseRunning": "Crawling…",
+      "phaseDone": "Done",
+      "phaseStopped": "Stopped",
+      "phaseError": "Error",
+      "progressLabel": "Progress: {done} / {total} domains",
+      "logLabel": "Domain log ({count})"
     },
     "upsert": {
       "title": "Add / Update Affiliate Program",
@@ -462,7 +487,9 @@
       "done": "Done — {improved} / {total} improved",
       "logImproved": "improved",
       "logNoChange": "no change",
-      "logError": "error"
+      "logError": "error",
+      "ladyToolsOption": "Lady Tools (Gemini)",
+      "ladyToolsHint": "Lady Tools opens a real Chrome tab per domain (~20s each) and reuses the domain's best stored sub-page content instead of re-crawling. Domains that still score 0 will be deleted."
     }
   },
   "feedback": {

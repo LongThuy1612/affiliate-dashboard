@@ -15,6 +15,7 @@ import type {
   DiscoverAutoStatus,
   DiscoverSearchStatus,
   SystemStats,
+  CrawlDomainsBatchStatus,
 } from '@/lib/api';
 import { Card } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -662,22 +663,78 @@ function CrawlDomainForm() {
 
 // ─── Action: Crawl Multiple Domains ──────────────────────────────────────────
 
+const CRAWL_DOMAINS_BATCH_MAX = 500; // must match `max` in crawl-affiliate.crawlDomainsBatch action params
+
 function CrawlDomainsForm() {
   const { toast } = useToast();
   const t = useTranslations('affiliateActions.crawlDomains');
   const apiError = useApiError();
   const [raw, setRaw]       = useState('');
   const [force, setForce]   = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<unknown>(null);
-  const domains = raw.split('\n').map((d) => d.trim()).filter(Boolean);
+  const [startLoading, setStartLoading] = useState(false);
+  const [stopLoading, setStopLoading]   = useState(false);
+  const [status, setStatus] = useState<CrawlDomainsBatchStatus | null>(null);
+  const pollRef             = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const rawDomains = raw.split('\n').map((d) => d.trim()).filter(Boolean);
+  const domains = Array.from(new Map(rawDomains.map((d) => [d.toLowerCase(), d])).values());
+  const duplicateCount = rawDomains.length - domains.length;
+
+  const stopPoll = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }, []);
+
+  const startPoll = useCallback(() => {
+    stopPoll();
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await crawlAffiliateApi.crawlDomainsBatchStatus();
+        setStatus(s);
+        if (!s.running && (s.phase === 'done' || s.phase === 'stopped' || s.phase === 'error')) stopPoll();
+      } catch { /* silent */ }
+    }, 2000);
+  }, [stopPoll]);
+
+  // On mount: check if a batch job is already running (e.g. after navigating away and back)
+  useEffect(() => {
+    crawlAffiliateApi.crawlDomainsBatchStatus()
+      .then((s) => { setStatus(s); if (s.running) startPoll(); })
+      .catch(() => {});
+    return () => stopPoll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const submit = async () => {
     if (!domains.length) return toast(t('validationError'), { type: 'error' });
-    setLoading(true); setResult(null);
-    try { const res = await crawlAffiliateApi.crawlDomains({ domains, force }); setResult(res); toast(t('successMessage', { count: domains.length }), { type: 'success' }); }
+    if (domains.length > CRAWL_DOMAINS_BATCH_MAX) return toast(t('tooManyDomains', { max: CRAWL_DOMAINS_BATCH_MAX }), { type: 'error' });
+    setStartLoading(true);
+    try {
+      await crawlAffiliateApi.crawlDomainsBatch({ domains, force });
+      toast(t('successMessage', { count: domains.length }), { type: 'success' });
+      startPoll();
+    }
     catch (e: unknown) { toast(apiError(e), { type: 'error' }); }
-    finally { setLoading(false); }
+    finally { setStartLoading(false); }
   };
+
+  const stopJob = async () => {
+    setStopLoading(true);
+    try {
+      await crawlAffiliateApi.crawlDomainsBatchStop();
+      toast(t('stopMessage'), { type: 'info' });
+    } catch (e: unknown) { toast(apiError(e), { type: 'error' }); }
+    finally { setStopLoading(false); }
+  };
+
+  const isRunning = !!status?.running;
+  const pct = status && status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+  const phaseLabel: Record<string, string> = {
+    idle: '', running: t('phaseRunning'), done: t('phaseDone'), stopped: t('phaseStopped'), error: t('phaseError'),
+  };
+  const phaseColor: Record<string, string> = {
+    idle: '', running: 'text-blue-400', done: 'text-green-400', stopped: 'text-[var(--text-muted)]', error: 'text-red-400',
+  };
+
   return (
     <div>
       <p className="text-xs text-[var(--text-muted)] mb-4">{t('description')}</p>
@@ -686,27 +743,87 @@ function CrawlDomainsForm() {
           <label className="text-xs font-medium text-[var(--text-muted)] block mb-1">
             {t('domainsLabel')}
             {domains.length > 0 && <span className="ml-2 text-[var(--accent)]">{t('domainsCount', { count: domains.length })}</span>}
+            {duplicateCount > 0 && <span className="ml-2 text-[var(--text-muted)]">{t('duplicatesRemoved', { count: duplicateCount })}</span>}
           </label>
           <textarea
             className="w-full rounded-md border bg-[var(--surface)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] font-mono h-32 resize-y"
             placeholder={"stripe.com\npaddle.com\nshopify.com"}
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
+            disabled={isRunning}
           />
           <FieldHint>{t('domainsHint')}</FieldHint>
         </div>
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex flex-col gap-1">
             <label className="flex items-center gap-2 text-sm text-[var(--text-muted)] cursor-pointer">
-              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} className="accent-[var(--accent)]" />
+              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} disabled={isRunning} className="accent-[var(--accent)]" />
               {t('forceLabel')}
             </label>
             <FieldHint>{t('forceHint')}</FieldHint>
           </div>
-          <Button icon={<Layers size={13} />} loading={loading} onClick={submit}>{t('button')}</Button>
+          {isRunning ? (
+            <Button variant="danger" icon={<Layers size={13} />} loading={stopLoading} onClick={stopJob}>{t('stopButton')}</Button>
+          ) : (
+            <Button icon={<Layers size={13} />} loading={startLoading} onClick={submit}>{t('button')}</Button>
+          )}
         </div>
       </div>
-      <ResultBox result={result} />
+
+      {status && status.phase !== 'idle' && (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isRunning && <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />}
+              <span className={`text-sm font-semibold ${phaseColor[status.phase]}`}>{phaseLabel[status.phase]}</span>
+            </div>
+          </div>
+
+          {status.total > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-[11px] text-[var(--text-muted)]">
+                <span>{t('progressLabel', { done: status.done, total: status.total })}</span>
+                <span className="tabular-nums">{pct}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                <div className="h-full rounded-full bg-[var(--accent)] transition-all duration-500" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex flex-wrap gap-4 text-[10px] text-[var(--text-muted)]">
+                <span className="text-green-400">✓ {status.found} found</span>
+                <span className="text-[var(--text-muted)]">⊘ {status.skipped} skipped</span>
+                <span className="text-red-400">✗ {status.errors} errors</span>
+              </div>
+            </div>
+          )}
+
+          {status.recentDomains.length > 0 && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] overflow-hidden">
+              <p className="px-3 py-2 text-[11px] font-semibold text-[var(--text-muted)] border-b border-[var(--border)]">
+                {t('logLabel', { count: status.recentDomains.length })}
+              </p>
+              <div className="max-h-52 overflow-y-auto font-mono text-xs">
+                {status.recentDomains.map((d, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-1 border-b border-[var(--border)] last:border-0">
+                    <span className={d.status === 'found' ? 'text-green-400' : d.status === 'error' ? 'text-red-400' : 'text-[var(--text-muted)]'}>
+                      {d.status === 'found' ? '✓' : d.status === 'error' ? '✗' : '—'}
+                    </span>
+                    <span className="text-indigo-400 flex-1 truncate">{d.domain}</span>
+                    <span className={`text-[10px] ${d.status === 'found' ? 'text-green-400' : d.status === 'error' ? 'text-red-400' : 'text-[var(--text-muted)]'}`}>
+                      {d.message ?? d.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {status.errorMsg && (
+            <div className="rounded-lg border border-red-800/50 bg-red-950/20 px-3 py-2 text-xs text-red-400">
+              ✗ {status.errorMsg}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -791,10 +908,12 @@ function LlmImproveLowScoreForm() {
   const stopRef                   = useRef(false);
 
   const FIXED = ['deepseek-coder', 'phi4', 'mistral'];
+  const LADY_TOOLS_MODEL = 'ladytools-gemini';
   const modelOptions = [
     { value: '', label: 'Auto' },
     ...FIXED.map((m) => ({ value: m, label: m })),
     ...allModels.filter((m) => !FIXED.includes(m)).map((m) => ({ value: m, label: m })),
+    { value: LADY_TOOLS_MODEL, label: t('ladyToolsOption') },
   ];
 
   const loadDomains = async () => {
@@ -824,7 +943,9 @@ function LlmImproveLowScoreForm() {
       const domain = domains[i];
       let result: ImproveLog['result'] = 'error';
       try {
-        const res = await crawlAffiliateApi.llmImprove([domain], model || undefined);
+        const res = model === LADY_TOOLS_MODEL
+          ? await crawlAffiliateApi.ladyToolsImprove([domain])
+          : await crawlAffiliateApi.llmImprove([domain], model || undefined);
         result = res.improved > 0 ? 'improved' : 'nochange';
         if (res.improved > 0) improved++;
       } catch { result = 'error'; }
@@ -848,6 +969,9 @@ function LlmImproveLowScoreForm() {
           {loading ? t('loading') : t('loadButton')}
         </Button>
       </div>
+      {model === LADY_TOOLS_MODEL && (
+        <p className="text-xs text-amber-400 mb-4">{t('ladyToolsHint')}</p>
+      )}
       {domains !== null && (
         <div className="space-y-3">
           <div className="flex items-center gap-3">

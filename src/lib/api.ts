@@ -1,8 +1,36 @@
-import { getAccessToken } from './auth';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens, authApi } from './auth';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3008/api';
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+// Access tokens expire after 1h (see services/auth.service.js ACCESS_TOKEN_TTL).
+// Without this, any request made after the token expires throws a raw 401 and
+// the user has to hard-refresh the page (AuthContext only refreshes on mount)
+// to keep working. Dedupe concurrent refreshes behind one shared promise —
+// sequential batch actions (e.g. the "AI Improve Low-Score" loop) can fire
+// several requests close together, and without dedup each one would race to
+// call /auth/refresh with the same refresh token at once.
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) throw new Error('No refresh token');
+      try {
+        const { accessToken, refreshToken: newRefreshToken } = await authApi.refreshToken(refreshToken);
+        setTokens(accessToken, newRefreshToken);
+        return accessToken;
+      } catch (err) {
+        clearTokens();
+        throw err;
+      }
+    })();
+    refreshPromise.finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+async function request<T>(path: string, options?: RequestInit, _isRetry = false): Promise<T> {
   const token = getAccessToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: {
@@ -13,6 +41,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
     ...options,
   });
+  if (res.status === 401 && !_isRetry && getRefreshToken()) {
+    try {
+      await refreshAccessToken();
+      return request<T>(path, options, true);
+    } catch {
+      // Refresh itself failed (refresh token expired/invalid) — fall through
+      // to the normal error path below so the caller sees a real 401 and the
+      // app can redirect to login instead of retrying forever.
+    }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `HTTP ${res.status}`);
@@ -325,6 +363,41 @@ export interface AffiliateListParams {
   scoreMax?: number;
   scoreMin?: number;
   hasCommission?: boolean;
+  dateField?: 'crawledAt' | 'updatedAt';
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+// Selectable Excel export columns — must mirror the backend's allowed list exactly
+// (services/affiliate.service.js EXPORT_COLUMNS, trustpilot_crawl repo).
+export const EXPORT_COLUMNS = [
+  { key: 'programName', label: 'Program Name' },
+  { key: 'signupUrl', label: 'Signup Url' },
+  { key: 'commissionRate', label: 'Commission Rate' },
+  { key: 'commissionType', label: 'Commission Type' },
+  { key: 'recurringDuration', label: 'Recurring Duration' },
+  { key: 'paymentTerms', label: 'Payment Terms' },
+  { key: 'cookieDays', label: 'Cookie Days' },
+  { key: 'affiliateNetwork', label: 'Affiliate Network' },
+  { key: 'productCategory', label: 'Product Category' },
+] as const;
+
+export type ExportColumnKey = typeof EXPORT_COLUMNS[number]['key'];
+
+export interface AffiliateExportParams extends Omit<AffiliateListParams, 'page' | 'limit'> {
+  columns?: ExportColumnKey[];
+  maxRows?: number;
+}
+
+export class ExportRowCapError extends Error {
+  total: number;
+  maxRows: number;
+  constructor(message: string, total: number, maxRows: number) {
+    super(message);
+    this.name = 'ExportRowCapError';
+    this.total = total;
+    this.maxRows = maxRows;
+  }
 }
 
 export const affiliateApi = {
@@ -349,6 +422,48 @@ export const affiliateApi = {
     if (!res.ok) return null;
     const blob = await res.blob();
     return URL.createObjectURL(blob);
+  },
+
+  exportXlsx: async (params: AffiliateExportParams = {}): Promise<void> => {
+    const q = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v === undefined || v === '') return;
+      if (k === 'columns') {
+        (v as ExportColumnKey[]).forEach((col) => q.append('columns[]', col));
+      } else {
+        q.set(k, String(v));
+      }
+    });
+
+    const token = getAccessToken();
+    const res = await fetch(`${BASE_URL}/affiliate/export?${q}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+      },
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      if (res.status === 400 && typeof body.total === 'number' && typeof body.maxRows === 'number') {
+        throw new ExportRowCapError(body.error ?? 'Too many rows to export', body.total, body.maxRows);
+      }
+      throw new Error(body.error ?? 'Export failed');
+    }
+
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : `affiliate-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   },
 
   getScreenshot: async (domain: string): Promise<string | null> => {
@@ -470,10 +585,29 @@ export const crawlAffiliateApi = {
   crawlDomains: (params: { domains: string[]; force?: boolean }) =>
     request<object>('/crawl-affiliate/domains', { method: 'POST', body: JSON.stringify(params) }),
 
+  crawlDomainsBatch: (params: { domains: string[]; force?: boolean }) =>
+    request<{ started: boolean; message: string }>(
+      '/crawl-affiliate/domains-batch',
+      { method: 'POST', body: JSON.stringify(params) },
+    ),
+
+  crawlDomainsBatchStatus: () => request<CrawlDomainsBatchStatus>('/crawl-affiliate/domains-batch/status'),
+
+  crawlDomainsBatchStop: () => request<{ stopped: boolean }>(
+    '/crawl-affiliate/domains-batch/stop',
+    { method: 'POST', body: '{}' },
+  ),
+
   llmImprove: (domains: string[], model?: string) =>
     request<{ total: number; improved: number; errors: number }>('/crawl-affiliate/llm-improve', {
       method: 'POST',
       body: JSON.stringify({ domains, ...(model ? { model } : {}) }),
+    }),
+
+  ladyToolsImprove: (domains: string[]) =>
+    request<{ total: number; improved: number; deleted: number; errors: number }>('/crawl-affiliate/lady-tools-improve', {
+      method: 'POST',
+      body: JSON.stringify({ domains }),
     }),
 
   discoverAuto: (params: {
@@ -540,6 +674,21 @@ export interface DiscoverAutoStatus {
   slotAllocation?: { searchSlots: number; crawlSlots: number } | null;
   cycle?: number;
   _ramPressure?: string | null;
+}
+
+export interface CrawlDomainsBatchStatus {
+  running: boolean;
+  stopRequested: boolean;
+  phase: 'idle' | 'running' | 'done' | 'stopped' | 'error';
+  total: number;
+  done: number;
+  found: number;
+  errors: number;
+  skipped: number;
+  recentDomains: { domain: string; status: 'found' | 'skip' | 'error'; message?: string | null }[];
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorMsg: string | null;
 }
 
 export interface RawHtmlResult {

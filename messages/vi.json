@@ -165,7 +165,10 @@
       "updatedAt": "Ngày cập nhật",
       "confidence": "Độ tin cậy",
       "domain": "Domain",
-      "perPage": "Mỗi trang"
+      "perPage": "Mỗi trang",
+      "dateField": "Trường ngày",
+      "dateFrom": "Từ ngày",
+      "dateTo": "Đến ngày"
     },
     "table": {
       "id": "STT",
@@ -221,6 +224,18 @@
       "submitted": "Đã lưu xác nhận",
       "cleared": "Đã xóa xác nhận",
       "title": "Xác nhận: {domain}"
+    },
+    "export": {
+      "button": "Tải Excel",
+      "title": "Chọn cột để tải",
+      "hint": "Domain luôn được bao gồm. Bỏ chọn các cột bạn không cần.",
+      "maxRows": "Số dòng tối đa",
+      "maxRowsPlaceholder": "Tất cả (tối đa 50,000)",
+      "maxRowsHint": "Để trống để tải toàn bộ dòng khớp bộ lọc, trong giới hạn cho phép.",
+      "confirm": "Tải xuống",
+      "cancel": "Hủy",
+      "failed": "Tải thất bại",
+      "rowCapExceeded": "Quá nhiều dòng để tải ({total}, tối đa {maxRows}). Hãy thu hẹp bộ lọc và thử lại."
     }
   },
   "affiliateDetail": {
@@ -383,11 +398,21 @@
       "domainsLabel": "Danh sách domain",
       "domainsCount": "({count} domain)",
       "domainsHint": "Mỗi dòng một domain thuần (không cần https://). Dòng trống sẽ bị bỏ qua.",
+      "duplicatesRemoved": "Đã loại {count} domain trùng",
       "forceLabel": "Buộc crawl lại",
       "forceHint": "Crawl lại tất cả dù đã có dữ liệu.",
       "button": "Crawl Domains",
+      "stopButton": "Dừng",
+      "stopMessage": "Đã gửi lệnh dừng.",
       "validationError": "Nhập ít nhất một domain",
-      "successMessage": "Đã xếp hàng {count} domain"
+      "tooManyDomains": "Tối đa {max} domain mỗi lần",
+      "successMessage": "Đã xếp hàng {count} domain",
+      "phaseRunning": "Đang crawl…",
+      "phaseDone": "Hoàn thành",
+      "phaseStopped": "Đã dừng",
+      "phaseError": "Lỗi",
+      "progressLabel": "Tiến độ: {done} / {total} domain",
+      "logLabel": "Log domain ({count})"
     },
     "upsert": {
       "title": "Thêm / Cập nhật Chương trình",
@@ -462,7 +487,9 @@
       "done": "Hoàn thành — {improved} / {total} đã cải thiện",
       "logImproved": "đã cải thiện",
       "logNoChange": "không đổi",
-      "logError": "lỗi"
+      "logError": "lỗi",
+      "ladyToolsOption": "Lady Tools (Gemini)",
+      "ladyToolsHint": "Lady Tools mở 1 tab Chrome thật cho mỗi domain (~20s/domain) và dùng lại nội dung sub-page tốt nhất đã lưu thay vì crawl lại. Domain vẫn còn điểm 0 sẽ bị xóa."
     }
   },
   "feedback": {

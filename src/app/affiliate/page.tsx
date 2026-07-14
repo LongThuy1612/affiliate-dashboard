@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification } from '@/lib/api';
+import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError } from '@/lib/api';
 import { StatCard } from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import Select from '@/components/ui/Select';
 import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
-import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight } from 'lucide-react';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download } from 'lucide-react';
 import { AffiliateSubPage } from '@/lib/api';
 import Link from 'next/link';
 import clsx from 'clsx';
@@ -169,6 +169,89 @@ function VerifyModal({
   );
 }
 
+function ExportColumnsModal({
+  onConfirm,
+  onClose,
+  exporting,
+}: {
+  onConfirm: (columns: ExportColumnKey[], maxRows: number | undefined) => void;
+  onClose: () => void;
+  exporting: boolean;
+}) {
+  const t = useTranslations('affiliate.export');
+  const [selected, setSelected] = useState<Set<ExportColumnKey>>(
+    new Set(EXPORT_COLUMNS.map((c) => c.key)),
+  );
+  const [maxRows, setMaxRows] = useState('');
+
+  const toggle = (key: ExportColumnKey) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  const handleConfirm = () => {
+    const parsed = maxRows.trim() ? Number(maxRows) : undefined;
+    onConfirm(Array.from(selected), parsed);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+      <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl space-y-5">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--text)]">{t('title')}</h2>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">{t('hint')}</p>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          {EXPORT_COLUMNS.map((col) => (
+            <label key={col.key} className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+              <input
+                type="checkbox"
+                checked={selected.has(col.key)}
+                onChange={() => toggle(col.key)}
+                className="accent-[var(--accent)]"
+              />
+              <span className="font-medium text-[var(--text)]">{col.label}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-medium text-[var(--text-muted)]">{t('maxRows')}</label>
+          <input
+            type="number"
+            min={1}
+            placeholder={t('maxRowsPlaceholder')}
+            value={maxRows}
+            onChange={(e) => setMaxRows(e.target.value)}
+            className="w-full sm:w-48 rounded-md border bg-[var(--surface)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent)]"
+          />
+          <p className="text-xs text-[var(--text-muted)] opacity-70">{t('maxRowsHint')}</p>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={handleConfirm}
+            disabled={selected.size === 0 || exporting}
+            className="flex-1 py-2.5 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {exporting ? '…' : t('confirm')}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={exporting}
+            className="px-4 py-2.5 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--surface-2)] transition-colors disabled:opacity-50"
+          >
+            {t('cancel')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function typeVariant(t: CommissionType) {
   if (t === 'recurring') return 'success';
   if (t === 'one_time') return 'accent';
@@ -266,6 +349,7 @@ export default function AffiliatePage() {
   const isSuperAdmin = (user?.permissions ?? []).includes('all:manage');
   const t = useTranslations('affiliate');
   const tc = useTranslations('common');
+  const tExport = useTranslations('affiliate.export');
 
   const [stats, setStats] = useState<AffiliateStats | null>(null);
   const [items, setItems] = useState<AffiliateProgram[]>([]);
@@ -288,6 +372,8 @@ export default function AffiliatePage() {
   const [search, setSearch] = useState('');
   const [commissionFilter, setCommissionFilter] = useState('');
   const [scoreFilter, setScoreFilter] = useState('');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const TYPE_OPTIONS = [
     { value: '', label: t('filters.allTypes') },
@@ -312,6 +398,10 @@ export default function AffiliatePage() {
     { value: 'updatedAt', label: t('filters.updatedAt') },
     { value: 'confidence', label: t('filters.confidence') },
     { value: 'domain', label: t('filters.domain') },
+  ];
+  const DATE_FIELD_OPTIONS = [
+    { value: 'crawledAt', label: t('filters.crawledAt') },
+    { value: 'updatedAt', label: t('filters.updatedAt') },
   ];
 
   // Filtering is now fully server-side — items is already the filtered page slice.
@@ -430,6 +520,28 @@ export default function AffiliatePage() {
     setSelected(prev => { const s = new Set(prev); s.has(domain) ? s.delete(domain) : s.add(domain); return s; });
   const refreshStats = async () => { try { setStats(await affiliateApi.stats()); } catch { } };
 
+  const handleExport = async (columns: ExportColumnKey[], maxRows: number | undefined) => {
+    setExporting(true);
+    try {
+      const {
+        commissionType, minConfidence, domain, orderBy, order,
+        scoreMax, scoreMin, hasCommission, dateField, dateFrom, dateTo,
+      } = params;
+      await affiliateApi.exportXlsx({
+        commissionType, minConfidence, domain, orderBy, order,
+        scoreMax, scoreMin, hasCommission, dateField, dateFrom, dateTo,
+        columns, maxRows,
+      });
+      setShowExportModal(false);
+    } catch (e: unknown) {
+      if (e instanceof ExportRowCapError) {
+        toast(tExport('rowCapExceeded', { total: e.total, maxRows: e.maxRows }), { type: 'error' });
+      } else {
+        toast(e instanceof Error ? e.message : tExport('failed'), { type: 'error' });
+      }
+    } finally { setExporting(false); }
+  };
+
   return (
     <div className="p-6 space-y-5">
       {/* Header */}
@@ -446,6 +558,10 @@ export default function AffiliatePage() {
           <Link href="/affiliate/stats">
             <Button variant="secondary" size="sm" icon={<BarChart2 size={13} />}>{t('statsButton')}</Button>
           </Link>
+          <Button variant="secondary" size="sm" icon={<Download size={13} />}
+            onClick={() => setShowExportModal(true)}>
+            {tExport('button')}
+          </Button>
           <Link href="/affiliate/actions">
             <Button size="sm">{t('crawlAdd')}</Button>
           </Link>
@@ -560,6 +676,14 @@ export default function AffiliatePage() {
             value={String(params.limit)}
             onValueChange={(v) => applyParams({ ...params, page: 1, limit: Number(v) })}
             options={[20, 50, 100, 200].map((n) => ({ value: String(n), label: String(n) }))} />
+          <Select label={t('filters.dateField')}
+            value={params.dateField ?? 'crawledAt'}
+            onValueChange={(v) => applyParams({ ...params, page: 1, dateField: v as AffiliateListParams['dateField'] })}
+            options={DATE_FIELD_OPTIONS} />
+          <Input type="date" label={t('filters.dateFrom')} value={params.dateFrom ?? ''}
+            onChange={(e) => applyParams({ ...params, page: 1, dateFrom: e.target.value || undefined })} />
+          <Input type="date" label={t('filters.dateTo')} value={params.dateTo ?? ''}
+            onChange={(e) => applyParams({ ...params, page: 1, dateTo: e.target.value || undefined })} />
         </div>
       </div>
 
@@ -806,6 +930,15 @@ export default function AffiliatePage() {
           onChange={(p) => applyParams({ ...params, page: p })}
         />
       </div>
+
+      {/* Export columns modal */}
+      {showExportModal && (
+        <ExportColumnsModal
+          exporting={exporting}
+          onConfirm={handleExport}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
 
       {/* Verify modal */}
       {verifyModal && (
