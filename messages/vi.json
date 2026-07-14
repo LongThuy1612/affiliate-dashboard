@@ -168,7 +168,15 @@
       "perPage": "Mỗi trang",
       "dateField": "Trường ngày",
       "dateFrom": "Từ ngày",
-      "dateTo": "Đến ngày"
+      "dateTo": "Đến ngày",
+      "dateRange": "Khoảng ngày",
+      "dateRangePlaceholder": "Chọn ngày…",
+      "presetToday": "Hôm nay",
+      "preset7d": "7 ngày",
+      "preset30d": "30 ngày",
+      "clearRange": "Xóa",
+      "applyRange": "Áp dụng",
+      "cancelRange": "Hủy"
     },
     "table": {
       "id": "STT",
@@ -227,8 +235,10 @@
     },
     "export": {
       "button": "Tải Excel",
+      "buttonSelected": "Tải mục đã chọn",
       "title": "Chọn cột để tải",
       "hint": "Domain luôn được bao gồm. Bỏ chọn các cột bạn không cần.",
+      "hintSelected": "Đang tải {count} domain đã chọn. Domain luôn được bao gồm.",
       "maxRows": "Số dòng tối đa",
       "maxRowsPlaceholder": "Tất cả (tối đa 50,000)",
       "maxRowsHint": "Để trống để tải toàn bộ dòng khớp bộ lọc, trong giới hạn cho phép.",

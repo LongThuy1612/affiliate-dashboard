@@ -387,6 +387,7 @@ export type ExportColumnKey = typeof EXPORT_COLUMNS[number]['key'];
 export interface AffiliateExportParams extends Omit<AffiliateListParams, 'page' | 'limit'> {
   columns?: ExportColumnKey[];
   maxRows?: number;
+  domains?: string[];
 }
 
 export class ExportRowCapError extends Error {
@@ -430,6 +431,8 @@ export const affiliateApi = {
       if (v === undefined || v === '') return;
       if (k === 'columns') {
         (v as ExportColumnKey[]).forEach((col) => q.append('columns[]', col));
+      } else if (k === 'domains') {
+        (v as string[]).forEach((d) => q.append('domains[]', d));
       } else {
         q.set(k, String(v));
       }

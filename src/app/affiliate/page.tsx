@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError } from '@/lib/api';
 import { StatCard } from '@/components/ui/Card';
@@ -10,7 +10,7 @@ import Select from '@/components/ui/Select';
 import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
-import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download } from 'lucide-react';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download, CalendarRange } from 'lucide-react';
 import { AffiliateSubPage } from '@/lib/api';
 import Link from 'next/link';
 import clsx from 'clsx';
@@ -173,10 +173,12 @@ function ExportColumnsModal({
   onConfirm,
   onClose,
   exporting,
+  selectedDomainCount,
 }: {
   onConfirm: (columns: ExportColumnKey[], maxRows: number | undefined) => void;
   onClose: () => void;
   exporting: boolean;
+  selectedDomainCount?: number;
 }) {
   const t = useTranslations('affiliate.export');
   const [selected, setSelected] = useState<Set<ExportColumnKey>>(
@@ -201,7 +203,9 @@ function ExportColumnsModal({
       <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl space-y-5">
         <div>
           <h2 className="text-lg font-semibold text-[var(--text)]">{t('title')}</h2>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">{t('hint')}</p>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            {selectedDomainCount ? t('hintSelected', { count: selectedDomainCount }) : t('hint')}
+          </p>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
@@ -218,18 +222,20 @@ function ExportColumnsModal({
           ))}
         </div>
 
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-medium text-[var(--text-muted)]">{t('maxRows')}</label>
-          <input
-            type="number"
-            min={1}
-            placeholder={t('maxRowsPlaceholder')}
-            value={maxRows}
-            onChange={(e) => setMaxRows(e.target.value)}
-            className="w-full sm:w-48 rounded-md border bg-[var(--surface)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent)]"
-          />
-          <p className="text-xs text-[var(--text-muted)] opacity-70">{t('maxRowsHint')}</p>
-        </div>
+        {!selectedDomainCount && (
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-medium text-[var(--text-muted)]">{t('maxRows')}</label>
+            <input
+              type="number"
+              min={1}
+              placeholder={t('maxRowsPlaceholder')}
+              value={maxRows}
+              onChange={(e) => setMaxRows(e.target.value)}
+              className="w-full sm:w-48 rounded-md border bg-[var(--surface)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)] focus:border-[var(--accent)]"
+            />
+            <p className="text-xs text-[var(--text-muted)] opacity-70">{t('maxRowsHint')}</p>
+          </div>
+        )}
 
         <div className="flex gap-2 pt-1">
           <button
@@ -248,6 +254,192 @@ function ExportColumnsModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Compact date-range filter (presets + click-twice calendar) ──────────────
+
+function toDateInputValue(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return toDateInputValue(d);
+}
+
+function buildMonthGrid(monthDate: Date): (Date | null)[] {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = (firstDay.getDay() + 6) % 7; // Monday-first
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  return cells;
+}
+
+function DateRangePicker({
+  from,
+  to,
+  onChange,
+}: {
+  from?: string;
+  to?: string;
+  onChange: (from: string | undefined, to: string | undefined) => void;
+}) {
+  const t = useTranslations('affiliate.filters');
+  const [open, setOpen] = useState(false);
+  const [pendingFrom, setPendingFrom] = useState<string | undefined>(from);
+  const [pendingTo, setPendingTo] = useState<string | undefined>(to);
+  const [viewMonth, setViewMonth] = useState(() => (from ? new Date(from) : new Date()));
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const togglePopover = () => {
+    setOpen((wasOpen) => {
+      const willOpen = !wasOpen;
+      if (willOpen) { setPendingFrom(from); setPendingTo(to); }
+      return willOpen;
+    });
+  };
+
+  const applyPreset = (fromValue: string | undefined, toValue: string | undefined) => {
+    onChange(fromValue, toValue);
+    setOpen(false);
+  };
+
+  const pickDay = (d: Date) => {
+    const value = toDateInputValue(d);
+    if (!pendingFrom || (pendingFrom && pendingTo)) {
+      // Start a new range
+      setPendingFrom(value);
+      setPendingTo(undefined);
+    } else if (value < pendingFrom) {
+      setPendingFrom(value);
+      setPendingTo(pendingFrom);
+    } else {
+      setPendingTo(value);
+    }
+  };
+
+  const applyCustomRange = () => {
+    onChange(pendingFrom, pendingTo);
+    setOpen(false);
+  };
+
+  const clearRange = () => {
+    setPendingFrom(undefined);
+    setPendingTo(undefined);
+    onChange(undefined, undefined);
+    setOpen(false);
+  };
+
+  const label = from && to ? `${from} → ${to}` : from ? `${t('dateFrom')} ${from}` : to ? `${t('dateTo')} ${to}` : t('dateRangePlaceholder');
+
+  const cells = buildMonthGrid(viewMonth);
+  const monthLabel = viewMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+  const inRange = (d: Date) => {
+    const v = toDateInputValue(d);
+    return !!pendingFrom && !!pendingTo && v >= pendingFrom && v <= pendingTo;
+  };
+  const isEndpoint = (d: Date) => {
+    const v = toDateInputValue(d);
+    return v === pendingFrom || v === pendingTo;
+  };
+
+  return (
+    <div className="relative flex flex-col gap-1" ref={containerRef}>
+      <label className="text-xs font-medium text-[var(--text-muted)]">{t('dateRange')}</label>
+      <button
+        type="button"
+        onClick={togglePopover}
+        className="inline-flex items-center gap-2 rounded-md border bg-[var(--surface)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] hover:border-[var(--accent)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] min-w-[160px]"
+      >
+        <CalendarRange size={14} className="text-[var(--text-muted)] shrink-0" />
+        <span className={clsx(!from && !to && 'text-[var(--text-muted)]')}>{label}</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            <button onClick={() => applyPreset(daysAgo(0), daysAgo(0))} className="px-2.5 py-1 rounded-md text-xs border border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-2)] hover:border-[var(--accent)]/50 transition-colors">
+              {t('presetToday')}
+            </button>
+            <button onClick={() => applyPreset(daysAgo(7), daysAgo(0))} className="px-2.5 py-1 rounded-md text-xs border border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-2)] hover:border-[var(--accent)]/50 transition-colors">
+              {t('preset7d')}
+            </button>
+            <button onClick={() => applyPreset(daysAgo(30), daysAgo(0))} className="px-2.5 py-1 rounded-md text-xs border border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-2)] hover:border-[var(--accent)]/50 transition-colors">
+              {t('preset30d')}
+            </button>
+            {(from || to) && (
+              <button onClick={clearRange} className="ml-auto px-2.5 py-1 rounded-md text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors">
+                {t('clearRange')}
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)]">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="text-xs font-medium text-[var(--text)] capitalize">{monthLabel}</span>
+            <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)]">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 text-center">
+            {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
+              <span key={d} className="text-[10px] text-[var(--text-muted)] py-1">{d}</span>
+            ))}
+            {cells.map((d, i) => (
+              <button
+                key={i}
+                disabled={!d}
+                onClick={() => d && pickDay(d)}
+                className={clsx(
+                  'h-7 w-7 rounded text-xs transition-colors',
+                  !d && 'invisible',
+                  d && isEndpoint(d) && 'bg-[var(--accent)] text-white font-semibold',
+                  d && !isEndpoint(d) && inRange(d) && 'bg-[var(--accent)]/20 text-[var(--text)]',
+                  d && !isEndpoint(d) && !inRange(d) && 'text-[var(--text)] hover:bg-[var(--surface-2)]',
+                )}
+              >
+                {d?.getDate()}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={applyCustomRange}
+              disabled={!pendingFrom}
+              className="flex-1 py-1.5 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-medium transition-colors disabled:opacity-50"
+            >
+              {t('applyRange')}
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="px-3 py-1.5 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-xs hover:bg-[var(--surface-2)] transition-colors"
+            >
+              {t('cancelRange')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -523,15 +715,19 @@ export default function AffiliatePage() {
   const handleExport = async (columns: ExportColumnKey[], maxRows: number | undefined) => {
     setExporting(true);
     try {
-      const {
-        commissionType, minConfidence, domain, orderBy, order,
-        scoreMax, scoreMin, hasCommission, dateField, dateFrom, dateTo,
-      } = params;
-      await affiliateApi.exportXlsx({
-        commissionType, minConfidence, domain, orderBy, order,
-        scoreMax, scoreMin, hasCommission, dateField, dateFrom, dateTo,
-        columns, maxRows,
-      });
+      if (selected.size > 0) {
+        await affiliateApi.exportXlsx({ domains: Array.from(selected), columns, maxRows });
+      } else {
+        const {
+          commissionType, minConfidence, domain, orderBy, order,
+          scoreMax, scoreMin, hasCommission, dateField, dateFrom, dateTo,
+        } = params;
+        await affiliateApi.exportXlsx({
+          commissionType, minConfidence, domain, orderBy, order,
+          scoreMax, scoreMin, hasCommission, dateField, dateFrom, dateTo,
+          columns, maxRows,
+        });
+      }
       setShowExportModal(false);
     } catch (e: unknown) {
       if (e instanceof ExportRowCapError) {
@@ -680,10 +876,11 @@ export default function AffiliatePage() {
             value={params.dateField ?? 'crawledAt'}
             onValueChange={(v) => applyParams({ ...params, page: 1, dateField: v as AffiliateListParams['dateField'] })}
             options={DATE_FIELD_OPTIONS} />
-          <Input type="date" label={t('filters.dateFrom')} value={params.dateFrom ?? ''}
-            onChange={(e) => applyParams({ ...params, page: 1, dateFrom: e.target.value || undefined })} />
-          <Input type="date" label={t('filters.dateTo')} value={params.dateTo ?? ''}
-            onChange={(e) => applyParams({ ...params, page: 1, dateTo: e.target.value || undefined })} />
+          <DateRangePicker
+            from={params.dateFrom}
+            to={params.dateTo}
+            onChange={(dateFrom, dateTo) => applyParams({ ...params, page: 1, dateFrom, dateTo })}
+          />
         </div>
       </div>
 
@@ -691,6 +888,10 @@ export default function AffiliatePage() {
       {selected.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-[var(--accent)]/40 bg-indigo-950/30">
           <span className="text-sm text-indigo-300 font-medium">{tc('selected', { count: selected.size })}</span>
+          <Button variant="secondary" size="sm" icon={<Download size={12} />}
+            onClick={() => setShowExportModal(true)}>
+            {tExport('buttonSelected')}
+          </Button>
           {isSuperAdmin && (
             <Button variant="danger" size="sm" loading={bulkDeleting} icon={<Trash2 size={12} />} onClick={handleBulkDelete}>
               {tc('deleteSelected')}
@@ -937,6 +1138,7 @@ export default function AffiliatePage() {
           exporting={exporting}
           onConfirm={handleExport}
           onClose={() => setShowExportModal(false)}
+          selectedDomainCount={selected.size > 0 ? selected.size : undefined}
         />
       )}
 

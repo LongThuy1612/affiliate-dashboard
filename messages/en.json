@@ -168,7 +168,15 @@
       "perPage": "Per page",
       "dateField": "Date Field",
       "dateFrom": "From",
-      "dateTo": "To"
+      "dateTo": "To",
+      "dateRange": "Date Range",
+      "dateRangePlaceholder": "Select date…",
+      "presetToday": "Today",
+      "preset7d": "7d",
+      "preset30d": "30d",
+      "clearRange": "Clear",
+      "applyRange": "Apply",
+      "cancelRange": "Cancel"
     },
     "table": {
       "id": "ID",
@@ -227,8 +235,10 @@
     },
     "export": {
       "button": "Download Excel",
+      "buttonSelected": "Download Selected",
       "title": "Choose columns to export",
       "hint": "Domain is always included. Uncheck any columns you don't need.",
+      "hintSelected": "Exporting {count} selected domain(s). Domain is always included.",
       "maxRows": "Max rows",
       "maxRowsPlaceholder": "All (up to 50,000)",
       "maxRowsHint": "Leave empty to export all matching rows, up to the limit.",
