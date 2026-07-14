@@ -127,6 +127,10 @@ export interface AffiliateProgram {
   /** Error code from the last failed fetch tier */
   lastFetchError: string | null;
   llmModel?: string | null;
+  /** Per-user "I signed up for this" marker — signedUpByMe is the current user's own status;
+   * anyoneSignedUp is a shared/group signal (true if ANY user has marked it). See affiliate-signup-marker. */
+  signedUpByMe?: boolean;
+  anyoneSignedUp?: boolean;
 }
 
 export interface AffiliateProgramTree {
@@ -366,6 +370,10 @@ export interface AffiliateListParams {
   dateField?: 'crawledAt' | 'updatedAt';
   dateFrom?: string;
   dateTo?: string;
+  signedUpByMe?: boolean;
+  notSignedUpByMe?: boolean;
+  anyoneSignedUp?: boolean;
+  noneSignedUp?: boolean;
 }
 
 // Selectable Excel export columns — must mirror the backend's allowed list exactly
@@ -401,6 +409,23 @@ export class ExportRowCapError extends Error {
   }
 }
 
+export interface ImportRowError {
+  row: number;
+  domain: string | null;
+  reason: string;
+}
+
+export interface ImportResult {
+  created: number;
+  updated: number;
+  errors: ImportRowError[];
+}
+
+// Columns accepted by import — identical to EXPORT_COLUMNS (domain is always required and
+// implicit, not part of this list). Kept as a separate export so the import rules panel can
+// reference it without implying every export column is optional on import too.
+export const IMPORT_COLUMNS = EXPORT_COLUMNS;
+
 export const affiliateApi = {
   list: (params: AffiliateListParams = {}) => {
     const q = new URLSearchParams();
@@ -411,6 +436,18 @@ export const affiliateApi = {
   get: (domain: string) => request<AffiliateProgram>(`/affiliate/${encodeURIComponent(domain)}`),
 
   getTree: (domain: string) => request<AffiliateProgramTree>(`/affiliate/tree/${encodeURIComponent(domain)}`),
+
+  markSignedUp: (domain: string) =>
+    request<{ domain: string; markedByUserId: number; markedByUsername: string; markedAt: string }>(
+      `/affiliate/signup/${encodeURIComponent(domain)}`,
+      { method: 'POST' },
+    ),
+
+  unmarkSignedUp: (domain: string) =>
+    request<{ success: true; domain: string }>(
+      `/affiliate/signup/${encodeURIComponent(domain)}`,
+      { method: 'DELETE' },
+    ),
 
   getSubPageScreenshot: async (id: number): Promise<string | null> => {
     const token = getAccessToken();
@@ -458,6 +495,50 @@ export const affiliateApi = {
     const disposition = res.headers.get('Content-Disposition') ?? '';
     const match = disposition.match(/filename="?([^"]+)"?/);
     const filename = match ? match[1] : `affiliate-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  importXlsx: async (file: File): Promise<ImportResult> => {
+    const token = getAccessToken();
+    const form = new FormData();
+    form.append('file', file);
+
+    const res = await fetch(`${BASE_URL}/affiliate/import`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+      },
+      body: form,
+    });
+
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    if (!res.ok) throw new Error(body.error ?? 'Import failed');
+    return body as ImportResult;
+  },
+
+  downloadImportTemplate: async (): Promise<void> => {
+    const token = getAccessToken();
+    const res = await fetch(`${BASE_URL}/affiliate/import-template`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+      },
+    });
+    if (!res.ok) throw new Error('Failed to download template');
+
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : 'affiliate-import-template.xlsx';
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

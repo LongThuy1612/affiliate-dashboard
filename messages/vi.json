@@ -176,7 +176,13 @@
       "preset30d": "30 ngày",
       "clearRange": "Xóa",
       "applyRange": "Áp dụng",
-      "cancelRange": "Hủy"
+      "cancelRange": "Hủy",
+      "signup": "Đăng ký",
+      "signedUp": "Đã đăng ký (tôi)",
+      "notSignedUp": "Chưa đăng ký (tôi)",
+      "anyoneSignedUp": "Đã có người đăng ký",
+      "noneSignedUp": "Chưa có người đăng ký",
+      "signupFilterCount": "{count} đã chọn"
     },
     "table": {
       "id": "STT",
@@ -189,7 +195,8 @@
       "source": "Nguồn",
       "fetchTier": "Tầng Fetch",
       "updated": "Cập nhật lúc",
-      "verify": "Xác nhận"
+      "verify": "Xác nhận",
+      "signedUp": "Đã đăng ký"
     },
     "badge": {
       "oneTime": "Một lần",
@@ -207,7 +214,8 @@
       "low": "Thấp",
       "veryLow": "Rất thấp",
       "newHint": "Lần cào đầu (≤8h)",
-      "recrawlHint": "Cào lại (≤8h)"
+      "recrawlHint": "Cào lại (≤8h)",
+      "anyoneSignedUpHint": "Đã có người đăng ký"
     },
     "deleteConfirm": "Xóa \"{domain}\"?",
     "deleteSuccess": "Đã xóa: {domain}",
@@ -233,8 +241,21 @@
       "cleared": "Đã xóa xác nhận",
       "title": "Xác nhận: {domain}"
     },
+    "signup": {
+      "title": "Trạng thái đăng ký",
+      "markShort": "Đánh dấu",
+      "signedUpShort": "Đã đăng ký",
+      "notSignedUpYet": "Bạn chưa đánh dấu chương trình này là đã đăng ký.",
+      "youSignedUp": "Bạn đã đánh dấu chương trình này là đã đăng ký.",
+      "markButton": "Đánh dấu đã đăng ký",
+      "unmarkButton": "Bỏ đánh dấu",
+      "close": "Đóng",
+      "marked": "Đã đánh dấu đăng ký",
+      "unmarked": "Đã bỏ đánh dấu đăng ký",
+      "failed": "Thao tác thất bại"
+    },
     "export": {
-      "button": "Tải Excel",
+      "button": "Tải dữ liệu",
       "buttonSelected": "Tải mục đã chọn",
       "title": "Chọn cột để tải",
       "hint": "Domain luôn được bao gồm. Bỏ chọn các cột bạn không cần.",
@@ -246,6 +267,29 @@
       "cancel": "Hủy",
       "failed": "Tải thất bại",
       "rowCapExceeded": "Quá nhiều dòng để tải ({total}, tối đa {maxRows}). Hãy thu hẹp bộ lọc và thử lại."
+    },
+    "import": {
+      "button": "Cập nhật dữ liệu",
+      "title": "Import chương trình affiliate từ Excel",
+      "rulesTitle": "Quy tắc file Excel",
+      "downloadTemplate": "Tải file mẫu",
+      "ruleDomain": "• Domain (bắt buộc) — dùng làm khóa để tạo mới hoặc cập nhật bản ghi.",
+      "ruleOptionalColumns": "• Các cột tùy chọn: {columns}.",
+      "ruleCommissionType": "• Commission Type phải là 1 trong: one_time, recurring, unknown.",
+      "ruleCookieDays": "• Cookie Days phải là số nguyên (từ 0 trở lên).",
+      "ruleRowCap": "• Tối đa 50,000 dòng mỗi file.",
+      "dropHint": "Kéo thả file vào đây hoặc bấm để chọn",
+      "dropSubhint": ".xlsx / .xls — tối đa 50,000 dòng",
+      "changeFileHint": "Bấm để chọn file khác",
+      "invalidFileType": "Vui lòng chọn file .xlsx hoặc .xls",
+      "close": "Đóng",
+      "importButton": "Import",
+      "failed": "Import thất bại",
+      "templateFailed": "Không tải được file mẫu",
+      "resultCreated": "{count} tạo mới",
+      "resultUpdated": "{count} cập nhật",
+      "resultErrors": "{count} lỗi",
+      "errorRow": "Dòng {row} ({domain}): {reason}"
     }
   },
   "affiliateDetail": {

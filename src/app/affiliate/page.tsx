@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError } from '@/lib/api';
+import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError, IMPORT_COLUMNS, ImportResult } from '@/lib/api';
 import { StatCard } from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import Select from '@/components/ui/Select';
 import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
-import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download, CalendarRange } from 'lucide-react';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet } from 'lucide-react';
 import { AffiliateSubPage } from '@/lib/api';
 import Link from 'next/link';
 import clsx from 'clsx';
@@ -169,6 +169,107 @@ function VerifyModal({
   );
 }
 
+function SignupCell({ signedUp, onClick }: { signedUp: boolean; onClick: () => void }) {
+  const t = useTranslations('affiliate.signup');
+  return (
+    <button
+      onClick={onClick}
+      title={signedUp ? t('signedUpShort') : t('markShort')}
+      className={clsx(
+        'w-7 h-7 rounded-md border text-xs font-bold transition-colors',
+        signedUp
+          ? 'border-transparent bg-[var(--surface-2)] text-emerald-400'
+          : 'border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]',
+      )}
+    >
+      {signedUp ? <BadgeCheck size={14} className="mx-auto" /> : '+'}
+    </button>
+  );
+}
+
+function SignupModal({
+  domain,
+  signedUpByMe,
+  onMarked,
+  onUnmarked,
+  onClose,
+}: {
+  domain: string;
+  signedUpByMe: boolean;
+  onMarked: () => void;
+  onUnmarked: () => void;
+  onClose: () => void;
+}) {
+  const t = useTranslations('affiliate.signup');
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+
+  const handleMark = async () => {
+    setSaving(true);
+    try {
+      await affiliateApi.markSignedUp(domain);
+      onMarked();
+      toast(t('marked'), { type: 'success' });
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : t('failed'), { type: 'error' });
+    } finally { setSaving(false); }
+  };
+
+  const handleUnmark = async () => {
+    setSaving(true);
+    try {
+      await affiliateApi.unmarkSignedUp(domain);
+      onUnmarked();
+      toast(t('unmarked'), { type: 'success' });
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : t('failed'), { type: 'error' });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+      <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--text)]">{t('title')}</h2>
+          <p className="mt-0.5 font-mono text-xs text-indigo-400 truncate">{domain}</p>
+        </div>
+
+        <p className="text-sm text-[var(--text-muted)]">
+          {signedUpByMe ? t('youSignedUp') : t('notSignedUpYet')}
+        </p>
+
+        <div className="flex gap-2 pt-1">
+          {!signedUpByMe && (
+            <button
+              onClick={handleMark}
+              disabled={saving}
+              className="flex-1 py-2 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? '…' : t('markButton')}
+            </button>
+          )}
+          {signedUpByMe && (
+            <button
+              onClick={handleUnmark}
+              disabled={saving}
+              className="flex-1 py-2 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--danger)]/10 hover:text-[var(--danger)] transition-colors disabled:opacity-50"
+            >
+              {saving ? '…' : t('unmarkButton')}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-3 py-2 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--surface-2)] transition-colors disabled:opacity-50"
+          >
+            {t('close')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ExportColumnsModal({
   onConfirm,
   onClose,
@@ -258,6 +359,163 @@ function ExportColumnsModal({
   );
 }
 
+function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const t = useTranslations('affiliate.import');
+  const { toast } = useToast();
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const acceptFile = (f: File | undefined) => {
+    if (!f) return;
+    if (!/\.(xlsx|xls)$/i.test(f.name)) {
+      toast(t('invalidFileType'), { type: 'error' });
+      return;
+    }
+    setFile(f);
+    setResult(null);
+  };
+
+  const handleDownloadTemplate = async () => {
+    setDownloadingTemplate(true);
+    try {
+      await affiliateApi.downloadImportTemplate();
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : t('templateFailed'), { type: 'error' });
+    } finally { setDownloadingTemplate(false); }
+  };
+
+  const handleImport = async () => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const res = await affiliateApi.importXlsx(file);
+      setResult(res);
+      if (res.created > 0 || res.updated > 0) onImported();
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : t('failed'), { type: 'error' });
+    } finally { setImporting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+      <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-[var(--text)]">{t('title')}</h2>
+          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 overflow-hidden">
+          <button
+            onClick={() => setRulesOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-amber-300"
+          >
+            <span className="flex items-center gap-1.5">
+              <ChevronDown size={14} className={clsx('transition-transform', !rulesOpen && '-rotate-90')} />
+              {t('rulesTitle')}
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); handleDownloadTemplate(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleDownloadTemplate(); } }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 px-2.5 py-1 text-xs text-amber-200 hover:bg-amber-500/10 transition-colors"
+            >
+              <Download size={12} />
+              {downloadingTemplate ? '…' : t('downloadTemplate')}
+            </span>
+          </button>
+          {rulesOpen && (
+            <div className="px-4 pb-4 text-xs text-amber-200/90 space-y-1.5">
+              <p>{t('ruleDomain')}</p>
+              <p>{t('ruleOptionalColumns', { columns: IMPORT_COLUMNS.map((c) => c.label).join(', ') })}</p>
+              <p>{t('ruleCommissionType')}</p>
+              <p>{t('ruleCookieDays')}</p>
+              <p>{t('ruleRowCap')}</p>
+            </div>
+          )}
+        </div>
+
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); acceptFile(e.dataTransfer.files[0]); }}
+          onClick={() => fileInputRef.current?.click()}
+          className={clsx(
+            'rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors',
+            dragOver ? 'border-[var(--accent)] bg-[var(--accent)]/5' : 'border-[var(--border)] hover:border-[var(--accent)]/50',
+          )}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => acceptFile(e.target.files?.[0])}
+          />
+          {file ? (
+            <div className="flex flex-col items-center gap-1.5">
+              <FileSpreadsheet size={28} className="text-[var(--accent)]" />
+              <p className="text-sm font-medium text-[var(--text)]">{file.name}</p>
+              <p className="text-xs text-[var(--text-muted)]">{t('changeFileHint')}</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5">
+              <Upload size={28} className="text-[var(--text-muted)]" />
+              <p className="text-sm font-medium text-[var(--accent)]">{t('dropHint')}</p>
+              <p className="text-xs text-[var(--text-muted)]">{t('dropSubhint')}</p>
+            </div>
+          )}
+        </div>
+
+        {result && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2">
+            <div className="flex gap-4 text-sm">
+              <span className="text-emerald-400 font-medium">{t('resultCreated', { count: result.created })}</span>
+              <span className="text-sky-400 font-medium">{t('resultUpdated', { count: result.updated })}</span>
+              {result.errors.length > 0 && (
+                <span className="text-red-400 font-medium">{t('resultErrors', { count: result.errors.length })}</span>
+              )}
+            </div>
+            {result.errors.length > 0 && (
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {result.errors.map((err, i) => (
+                  <p key={i} className="text-xs text-[var(--text-muted)]">
+                    {t('errorRow', { row: err.row, domain: err.domain ?? '—', reason: err.reason })}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onClose}
+            disabled={importing}
+            className="px-4 py-2.5 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--surface-2)] transition-colors disabled:opacity-50"
+          >
+            {t('close')}
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={!file || importing}
+            className="flex-1 py-2.5 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            {importing ? '…' : t('importButton')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Compact date-range filter (presets + click-twice calendar) ──────────────
 
 function toDateInputValue(d: Date): string {
@@ -280,6 +538,74 @@ function buildMonthGrid(monthDate: Date): (Date | null)[] {
   for (let i = 0; i < startOffset; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
   return cells;
+}
+
+const SIGNUP_FILTER_KEY_LIST = ['signedUpByMe', 'notSignedUpByMe', 'anyoneSignedUp', 'noneSignedUp'] as const;
+type SignupFilterKey = typeof SIGNUP_FILTER_KEY_LIST[number];
+
+function SignupFilterPicker({
+  active,
+  onChange,
+}: {
+  active: Set<SignupFilterKey>;
+  onChange: (next: Set<SignupFilterKey>) => void;
+}) {
+  const t = useTranslations('affiliate.filters');
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const toggle = (key: SignupFilterKey) => {
+    const next = new Set(active);
+    next.has(key) ? next.delete(key) : next.add(key);
+    onChange(next);
+  };
+
+  const LABELS: Record<SignupFilterKey, string> = {
+    signedUpByMe: t('signedUp'),
+    notSignedUpByMe: t('notSignedUp'),
+    anyoneSignedUp: t('anyoneSignedUp'),
+    noneSignedUp: t('noneSignedUp'),
+  };
+
+  const label = active.size > 0 ? t('signupFilterCount', { count: active.size }) : t('signup');
+
+  return (
+    <div className="relative flex flex-col gap-1" ref={containerRef}>
+      <label className="text-xs font-medium text-[var(--text-muted)]">{t('signup')}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-2 rounded-md border bg-[var(--surface)] border-[var(--border)] px-3 py-2 text-sm text-[var(--text)] hover:border-[var(--accent)]/50 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] min-w-[140px]"
+      >
+        <span className={clsx(active.size === 0 && 'text-[var(--text-muted)]')}>{label}</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 w-64 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 space-y-1.5">
+          {SIGNUP_FILTER_KEY_LIST.map((key) => (
+            <label key={key} className="flex items-center gap-2.5 cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-sm transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+              <input
+                type="checkbox"
+                checked={active.has(key)}
+                onChange={() => toggle(key)}
+                className="accent-[var(--accent)]"
+              />
+              <span className="text-[var(--text)]">{LABELS[key]}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DateRangePicker({
@@ -373,7 +699,7 @@ function DateRangePicker({
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full left-0 mt-1 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 space-y-3">
+        <div className="absolute z-50 top-full left-0 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 space-y-3">
           <div className="flex flex-wrap gap-1.5">
             <button onClick={() => applyPreset(daysAgo(0), daysAgo(0))} className="px-2.5 py-1 rounded-md text-xs border border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-2)] hover:border-[var(--accent)]/50 transition-colors">
               {t('presetToday')}
@@ -401,7 +727,7 @@ function DateRangePicker({
             </button>
           </div>
 
-          <div className="grid grid-cols-7 gap-0.5 text-center">
+          <div className="grid grid-cols-7 gap-1 text-center">
             {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
               <span key={d} className="text-[10px] text-[var(--text-muted)] py-1">{d}</span>
             ))}
@@ -411,7 +737,7 @@ function DateRangePicker({
                 disabled={!d}
                 onClick={() => d && pickDay(d)}
                 className={clsx(
-                  'h-7 w-7 rounded text-xs transition-colors',
+                  'aspect-square w-full rounded text-xs transition-colors',
                   !d && 'invisible',
                   d && isEndpoint(d) && 'bg-[var(--accent)] text-white font-semibold',
                   d && !isEndpoint(d) && inRange(d) && 'bg-[var(--accent)]/20 text-[var(--text)]',
@@ -542,6 +868,7 @@ export default function AffiliatePage() {
   const t = useTranslations('affiliate');
   const tc = useTranslations('common');
   const tExport = useTranslations('affiliate.export');
+  const tImport = useTranslations('affiliate.import');
 
   const [stats, setStats] = useState<AffiliateStats | null>(null);
   const [items, setItems] = useState<AffiliateProgram[]>([]);
@@ -557,6 +884,7 @@ export default function AffiliatePage() {
   const [recrawling, setRecrawling] = useState<string | null>(null);
   const [verifications, setVerifications] = useState<Map<string, AffiliateVerification>>(new Map());
   const [verifyModal, setVerifyModal] = useState<string | null>(null);
+  const [signupModal, setSignupModal] = useState<string | null>(null);
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [subPageCache, setSubPageCache] = useState<Map<string, AffiliateSubPage[]>>(new Map());
   const [subPageLoading, setSubPageLoading] = useState<Set<string>>(new Set());
@@ -564,8 +892,10 @@ export default function AffiliatePage() {
   const [search, setSearch] = useState('');
   const [commissionFilter, setCommissionFilter] = useState('');
   const [scoreFilter, setScoreFilter] = useState('');
+  const [signupFilters, setSignupFilters] = useState<Set<SignupFilterKey>>(new Set());
   const [showExportModal, setShowExportModal] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const TYPE_OPTIONS = [
     { value: '', label: t('filters.allTypes') },
@@ -758,6 +1088,10 @@ export default function AffiliatePage() {
             onClick={() => setShowExportModal(true)}>
             {tExport('button')}
           </Button>
+          <Button variant="secondary" size="sm" icon={<Upload size={13} />}
+            onClick={() => setShowImportModal(true)}>
+            {tImport('button')}
+          </Button>
           <Link href="/affiliate/actions">
             <Button size="sm">{t('crawlAdd')}</Button>
           </Link>
@@ -821,6 +1155,10 @@ export default function AffiliatePage() {
             <RotateCw size={11} className="text-sky-400" />
             <span>{t('legend.recrawlHint')}</span>
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-0.5 rounded-full shrink-0 bg-indigo-500" />
+            <span>{t('legend.anyoneSignedUpHint')}</span>
+          </span>
         </span>
       </div>
 
@@ -859,6 +1197,19 @@ export default function AffiliatePage() {
               });
             }}
             options={SCORE_FILTER_OPTIONS} />
+          <SignupFilterPicker
+            active={signupFilters}
+            onChange={(next) => {
+              setSignupFilters(next);
+              applyParams({
+                ...params, page: 1,
+                signedUpByMe: next.has('signedUpByMe') ? true : undefined,
+                notSignedUpByMe: next.has('notSignedUpByMe') ? true : undefined,
+                anyoneSignedUp: next.has('anyoneSignedUp') ? true : undefined,
+                noneSignedUp: next.has('noneSignedUp') ? true : undefined,
+              });
+            }}
+          />
           <Select label={t('filters.sortBy')}
             value={params.orderBy}
             onValueChange={(v) => applyParams({ ...params, page: 1, orderBy: v as AffiliateListParams['orderBy'] })}
@@ -868,10 +1219,6 @@ export default function AffiliatePage() {
             onClick={() => applyParams({ ...params, order: params.order === 'asc' ? 'desc' : 'asc' })}>
             {params.order === 'asc' ? tc('asc') : tc('desc')}
           </Button>
-          <Select label={t('filters.perPage')}
-            value={String(params.limit)}
-            onValueChange={(v) => applyParams({ ...params, page: 1, limit: Number(v) })}
-            options={[20, 50, 100, 200].map((n) => ({ value: String(n), label: String(n) }))} />
           <Select label={t('filters.dateField')}
             value={params.dateField ?? 'crawledAt'}
             onValueChange={(v) => applyParams({ ...params, page: 1, dateField: v as AffiliateListParams['dateField'] })}
@@ -881,6 +1228,10 @@ export default function AffiliatePage() {
             to={params.dateTo}
             onChange={(dateFrom, dateTo) => applyParams({ ...params, page: 1, dateFrom, dateTo })}
           />
+          <Select label={t('filters.perPage')}
+            value={String(params.limit)}
+            onValueChange={(v) => applyParams({ ...params, page: 1, limit: Number(v) })}
+            options={[20, 50, 100, 200].map((n) => ({ value: String(n), label: String(n) }))} />
         </div>
       </div>
 
@@ -921,16 +1272,16 @@ export default function AffiliatePage() {
                       someSelected ? <Minus size={14} /> : <Square size={14} />}
                   </button>
                 </th>
-                {[t('table.id'), t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), t('table.score'), t('table.updated'), t('table.source'), t('table.fetchTier'), t('table.verify'), ''].map((h) => (
+                {[t('table.id'), t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), t('table.score'), t('table.updated'), t('table.source'), t('table.fetchTier'), t('table.verify'), t('table.signedUp'), ''].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
+                <tr><td colSpan={14} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={12} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
+                <tr><td colSpan={14} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
               ) : (
                 filteredItems.flatMap((item, idx) => {
                   const isSelected = selected.has(item.domain);
@@ -957,7 +1308,8 @@ export default function AffiliatePage() {
                   const mainRow = (
                     <tr key={item.domain}
                       className={clsx(
-                        'border-b border-[var(--border)] transition-colors',
+                        'group border-b border-[var(--border)] transition-colors',
+                        item.anyoneSignedUp && 'border-r-2 border-r-indigo-500',
                         scoreRowBorder(item.affiliateScore),
                         isSelected ? 'bg-indigo-950/30' : 'hover:bg-[var(--surface-2)]',
                       )}>
@@ -1042,6 +1394,9 @@ export default function AffiliatePage() {
                         />
                       </td>
                       <td className="px-4 py-3">
+                        <SignupCell signedUp={!!item.signedUpByMe} onClick={() => setSignupModal(item.domain)} />
+                      </td>
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
                           {item.signupUrl && (
                             <a href={item.signupUrl} target="_blank" rel="noopener noreferrer">
@@ -1069,7 +1424,7 @@ export default function AffiliatePage() {
                   const subRows = isExpanded ? (
                     isLoadingSub ? (
                       <tr key={`${item.domain}__loading`} className="bg-[var(--surface-2)]/40">
-                        <td colSpan={13} className="px-10 py-2 text-xs text-[var(--text-muted)] animate-pulse">
+                        <td colSpan={14} className="px-10 py-2 text-xs text-[var(--text-muted)] animate-pulse">
                           Loading sub-programs…
                         </td>
                       </tr>
@@ -1104,7 +1459,7 @@ export default function AffiliatePage() {
                         <td className="px-2 py-2">
                           <ScoreBadge score={sp.affiliateScore} />
                         </td>
-                        <td colSpan={5} className="px-2 py-2">
+                        <td colSpan={6} className="px-2 py-2">
                           {sp.hasSignupForm && (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">
                               {sp.signupFormType ?? 'form'}
@@ -1141,6 +1496,40 @@ export default function AffiliatePage() {
           selectedDomainCount={selected.size > 0 ? selected.size : undefined}
         />
       )}
+
+      {/* Import modal */}
+      {showImportModal && (
+        <ImportModal
+          onClose={() => setShowImportModal(false)}
+          onImported={() => fetchData(params)}
+        />
+      )}
+
+      {/* Signup modal */}
+      {signupModal && (() => {
+        const target = items.find((i) => i.domain === signupModal);
+        return (
+          <SignupModal
+            domain={signupModal}
+            signedUpByMe={!!target?.signedUpByMe}
+            onMarked={() => {
+              setItems((prev) => prev.map((i) =>
+                i.domain === signupModal
+                  ? { ...i, signedUpByMe: true, anyoneSignedUp: true }
+                  : i));
+              setSignupModal(null);
+            }}
+            onUnmarked={() => {
+              setItems((prev) => prev.map((i) =>
+                i.domain === signupModal
+                  ? { ...i, signedUpByMe: false }
+                  : i));
+              setSignupModal(null);
+            }}
+            onClose={() => setSignupModal(null)}
+          />
+        );
+      })()}
 
       {/* Verify modal */}
       {verifyModal && (

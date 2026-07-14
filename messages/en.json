@@ -176,7 +176,13 @@
       "preset30d": "30d",
       "clearRange": "Clear",
       "applyRange": "Apply",
-      "cancelRange": "Cancel"
+      "cancelRange": "Cancel",
+      "signup": "Signup",
+      "signedUp": "Signed up (me)",
+      "notSignedUp": "Not signed up (me)",
+      "anyoneSignedUp": "Someone has signed up",
+      "noneSignedUp": "No one has signed up",
+      "signupFilterCount": "{count} selected"
     },
     "table": {
       "id": "ID",
@@ -189,7 +195,8 @@
       "source": "Source",
       "fetchTier": "Fetch Tier",
       "updated": "Updated At",
-      "verify": "Verify"
+      "verify": "Verify",
+      "signedUp": "Signed Up"
     },
     "badge": {
       "oneTime": "One-time",
@@ -207,7 +214,8 @@
       "low": "Low",
       "veryLow": "Very Low",
       "newHint": "First crawl (≤8h)",
-      "recrawlHint": "Re-crawled (≤8h)"
+      "recrawlHint": "Re-crawled (≤8h)",
+      "anyoneSignedUpHint": "Someone has signed up"
     },
     "deleteConfirm": "Delete \"{domain}\"?",
     "deleteSuccess": "Deleted: {domain}",
@@ -233,8 +241,21 @@
       "cleared": "Verification cleared",
       "title": "Verify: {domain}"
     },
+    "signup": {
+      "title": "Signup status",
+      "markShort": "Mark signed up",
+      "signedUpShort": "Signed up",
+      "notSignedUpYet": "You haven't marked this program as signed up yet.",
+      "youSignedUp": "You marked this program as signed up.",
+      "markButton": "Mark as signed up",
+      "unmarkButton": "Unmark",
+      "close": "Close",
+      "marked": "Marked as signed up",
+      "unmarked": "Signup marker removed",
+      "failed": "Action failed"
+    },
     "export": {
-      "button": "Download Excel",
+      "button": "Download Data",
       "buttonSelected": "Download Selected",
       "title": "Choose columns to export",
       "hint": "Domain is always included. Uncheck any columns you don't need.",
@@ -246,6 +267,29 @@
       "cancel": "Cancel",
       "failed": "Export failed",
       "rowCapExceeded": "Too many rows to export ({total}, max {maxRows}). Narrow your filters and try again."
+    },
+    "import": {
+      "button": "Import Data",
+      "title": "Import affiliate programs from Excel",
+      "rulesTitle": "Excel file rules",
+      "downloadTemplate": "Download sample file",
+      "ruleDomain": "• Domain (required) — used as the key to create or update a record.",
+      "ruleOptionalColumns": "• Optional columns: {columns}.",
+      "ruleCommissionType": "• Commission Type must be one of: one_time, recurring, unknown.",
+      "ruleCookieDays": "• Cookie Days must be a whole number (0 or greater).",
+      "ruleRowCap": "• Maximum 50,000 rows per file.",
+      "dropHint": "Drag and drop a file here, or click to choose",
+      "dropSubhint": ".xlsx / .xls — max 50,000 rows",
+      "changeFileHint": "Click to choose a different file",
+      "invalidFileType": "Please select an .xlsx or .xls file",
+      "close": "Close",
+      "importButton": "Import",
+      "failed": "Import failed",
+      "templateFailed": "Could not download the template",
+      "resultCreated": "{count} created",
+      "resultUpdated": "{count} updated",
+      "resultErrors": "{count} error(s)",
+      "errorRow": "Row {row} ({domain}): {reason}"
     }
   },
   "affiliateDetail": {
