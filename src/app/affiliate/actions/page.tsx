@@ -196,17 +196,19 @@ const SEARCH_STATUS_INTERVAL = 2_000;
 
 function KeywordBot({ onAdd }: { onAdd: (kws: string[]) => void }) {
   const allModels               = useAllModels();
-  const [model, setModel]       = useState('');
+  // Empty string = "no explicit user choice yet" — falls back to allModels[0]
+  // via the derived `model` below once the list loads, without needing a
+  // useEffect+setState round-trip (which forces an extra render and trips
+  // react-hooks/set-state-in-effect). selectedModel holds the RAW user
+  // selection; `model` is what the rest of this component actually reads.
+  const [selectedModel, setSelectedModel] = useState('');
+  const model = selectedModel || allModels[0] || '';
+  const setModel = setSelectedModel;
   const [topic, setTopic]       = useState('');
   const [loading, setLoading]   = useState(false);
   const [keywords, setKeywords] = useState<string[]>([]);
   const [added, setAdded]       = useState<Set<number>>(new Set());
   const [open, setOpen]         = useState(false);
-
-  useEffect(() => {
-    if (allModels.length > 0 && !model) setModel(allModels[0]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allModels]);
 
   const suggest = async () => {
     if (!topic.trim()) return;
@@ -933,24 +935,49 @@ function LlmImproveLowScoreForm() {
     finally { setLoading(false); }
   };
 
+  // Matches backend's LADY_TOOLS_BATCH_SIZE (default 5) — ladyToolsImprove groups
+  // domains into chunks of that size internally and only closes the AdsPower/
+  // Chrome browser tab (closeAdsPowerBrowsers) once per HTTP call, after ALL
+  // domains in the request are done. Sending domains one-at-a-time (old
+  // behavior) defeated the backend's batching entirely (1-domain chunks). Sending
+  // a much larger chunk here (e.g. 50, the backend's own hard cap) technically
+  // still batches internally, but then: the browser tab stays open for the
+  // WHOLE chunk instead of closing every 5 domains, and this UI's progress/log
+  // only update once per HTTP call — with a 50-domain chunk that's one very long
+  // wait with no visible progress. Matching CHUNK_SIZE to the backend's internal
+  // batch size keeps each HTTP call to exactly one Lady Tools batch call, so the
+  // browser closes and the UI updates every 5 domains — same cadence the backend
+  // already uses internally, just not larger than necessary.
+  const CHUNK_SIZE = 5;
+
   const runSequential = async () => {
     if (!domains?.length) return;
     stopRef.current = false; setRunning(true); setLog([]);
     const total = domains.length; setProgress({ done: 0, total, improved: 0 });
     let improved = 0;
-    for (let i = 0; i < domains.length; i++) {
+    let done = 0;
+    for (let i = 0; i < domains.length; i += CHUNK_SIZE) {
       if (stopRef.current) break;
-      const domain = domains[i];
-      let result: ImproveLog['result'] = 'error';
+      const chunk = domains.slice(i, i + CHUNK_SIZE);
       try {
         const res = model === LADY_TOOLS_MODEL
-          ? await crawlAffiliateApi.ladyToolsImprove([domain])
-          : await crawlAffiliateApi.llmImprove([domain], model || undefined);
-        result = res.improved > 0 ? 'improved' : 'nochange';
-        if (res.improved > 0) improved++;
-      } catch { result = 'error'; }
-      setLog((prev) => [{ domain, result }, ...prev.slice(0, 199)]);
-      setProgress({ done: i + 1, total, improved });
+          ? await crawlAffiliateApi.ladyToolsImprove(chunk)
+          : await crawlAffiliateApi.llmImprove(chunk, model || undefined);
+        improved += res.improved;
+        const byDomain = new Map(res.results.map((r) => [r.domain, r]));
+        const entries: ImproveLog[] = chunk.map((domain) => {
+          const r = byDomain.get(domain);
+          const result: ImproveLog['result'] = r?.error ? 'error' : (r?.updated ? 'improved' : 'nochange');
+          return { domain, result };
+        });
+        setLog((prev) => [...entries.reverse(), ...prev].slice(0, 200));
+      } catch {
+        // Whole-chunk failure (network error, etc.) — log every domain in it as
+        // errored rather than silently dropping their progress entries.
+        setLog((prev) => [...chunk.map((domain) => ({ domain, result: 'error' as const })).reverse(), ...prev].slice(0, 200));
+      }
+      done += chunk.length;
+      setProgress({ done, total, improved });
     }
     setRunning(false);
     toast(t('done', { improved, total }), { type: 'success' });
@@ -1024,7 +1051,11 @@ function AutoUpgradePanel() {
 
   const [tab, setTab]                 = useState<ActionTab>('guide');
   const allModels                     = useAllModels();
-  const [model, setModel]             = useState('');
+  // See KeywordBot's identical pattern above for why this derives the
+  // effective model instead of setState-in-effect.
+  const [selectedModel, setSelectedModel] = useState('');
+  const model = selectedModel || allModels[0] || '';
+  const setModel = setSelectedModel;
   const [loading, setLoading]         = useState(false);
   const [structured, setStructured]   = useState<BypassStructuredResponse | null>(null);
   const [expResults, setExpResults]   = useState<Record<string, BypassExperimentResult>>({});
@@ -1032,11 +1063,6 @@ function AutoUpgradePanel() {
   const [applyLoading, setApplyLoading]     = useState(false);
   const [rollbackLoading, setRollbackLoading] = useState(false);
   const [configState, setConfigState] = useState<BypassConfigState | null>(null);
-
-  useEffect(() => {
-    if (allModels.length > 0 && !model) setModel(allModels[0]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allModels]);
 
   useEffect(() => {
     affiliateApi.bypassGetConfig().then(setConfigState).catch(() => {});
@@ -1344,18 +1370,17 @@ function BypassAdvisorPanel() {
   const { toast } = useToast();
   const apiError = useApiError();
   const allModels                 = useAllModels();
-  const [model, setModel]         = useState('');
+  // See KeywordBot's identical pattern above for why this derives the
+  // effective model instead of setState-in-effect.
+  const [selectedModel, setSelectedModel] = useState('');
+  const model = selectedModel || allModels[0] || '';
+  const setModel = setSelectedModel;
   const [loading, setLoading]     = useState(false);
   const [data, setData]           = useState<BypassAnalysisResponse | null>(null);
   const [question, setQuestion]   = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (allModels.length > 0 && !model) setModel(allModels[0]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allModels]);
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatHistory]);
 
@@ -1548,14 +1573,42 @@ function DiscoverGoogleAutoPanel() {
   const apiError  = useApiError();
 
   // ── Params ──
-  const [aiModel, setAiModel]       = useState('');
+  // Every param here must actually reach the backend's active code path
+  // (_runContinuousCrawl, since CONTINUOUS_CRAWL_MODE=true) or it gets
+  // removed — several didn't and were cut:
+  // - limit/batchSize: _runContinuousCrawl never destructures either.
+  // - cpuMax/ramMax: RAM/CPU pressure is handled entirely by the crawler's own
+  //   fixed-threshold monitor (RAM_IDLE_DRAIN/PAUSE/STOP/EMERGENCY_PCT env
+  //   vars) — no per-run override needed, this UI control was redundant with
+  //   that always-on mechanism, not a substitute for it.
+  // - autoRestart (formerly derived from mode==='auto'): only read inside
+  //   _runDiscoverAuto (the legacy, inactive path) — continuous mode has its
+  //   own always-on stall watchdog independent of this flag, confirmed live
+  //   it's never even passed to _runContinuousCrawl.
+  // mode itself stays — unlike autoRestart, it genuinely drives UI flow here
+  // (auto-start vs. review-before-start), it just no longer gets sent to the
+  // backend as a param.
+  // See KeywordBot's identical pattern (top of file) for why this derives the
+  // effective model instead of setState-in-effect.
+  const [selectedAiModel, setSelectedAiModel] = useState('');
   const allModels                   = useAllModels();
+  const aiModel = selectedAiModel || allModels[0] || '';
+  const setAiModel = setSelectedAiModel;
   const [mode, setMode]             = useState<'auto' | 'manual'>('auto');
-  const [limit, setLimit]           = useState('500');
-  const [batchSize, setBatchSize]   = useState('10');
-  const [cpuMax, setCpuMax]         = useState('80');
-  const [ramMax, setRamMax]         = useState('80');
   const [skipOld, setSkipOld]       = useState(false);
+  // Score threshold (inclusive) below which a domain qualifies for the auto Lady
+  // Tools LLM-improve pass — genuinely used by the backend (_runContinuousCrawl's
+  // ladyToolsAuto trigger), unlike the removed cpuMax/ramMax/limit/batchSize params.
+  const [llmScoreThreshold, setLlmScoreThreshold] = useState(30);
+  // Confidence threshold (0-100, inclusive) — a domain ALSO qualifies for the auto
+  // Lady Tools pass when confidence*100 falls at or below this, independent of
+  // affiliateScore (catches passable-score-but-low-confidence domains).
+  const [llmConfidenceThreshold, setLlmConfidenceThreshold] = useState(30);
+  // Real "use LLM or not" switch for this session — continuous crawl's own
+  // Phase 1A pass is always regex-only, so the ladyToolsAuto background poll
+  // is the only place LLM enrichment happens. llmScoreThreshold/
+  // llmConfidenceThreshold above only tune WHICH domains qualify once this is on.
+  const [enableLlmAuto, setEnableLlmAuto] = useState(true);
 
   // ── Phase ──
   const [phase, setPhase]           = useState<AutoPhase>('setup');
@@ -1573,12 +1626,10 @@ function DiscoverGoogleAutoPanel() {
   const [status, setStatus]         = useState<DiscoverAutoStatus | null>(null);
   const [startLoading, setStartLoading] = useState(false);
   const [stopLoading, setStopLoading]   = useState(false);
+  const [closingLadyTools, setClosingLadyTools] = useState(false);
+  const [retryingLadyTools, setRetryingLadyTools] = useState(false);
+  const [togglingLadyToolsAuto, setTogglingLadyToolsAuto] = useState(false);
   const pollRef                         = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (allModels.length > 0 && !aiModel) setAiModel(allModels[0]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allModels]);
 
   const stopPoll = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -1654,12 +1705,10 @@ function DiscoverGoogleAutoPanel() {
     try {
       await crawlAffiliateApi.discoverAuto({
         keywords,
-        limit: limit ? Number(limit) : undefined,
-        cpuMax: cpuMax ? Number(cpuMax) : undefined,
-        ramMax: ramMax ? Number(ramMax) : undefined,
-        batchSize: batchSize ? Number(batchSize) : undefined,
         skipOld,
-        autoRestart: mode === 'auto',
+        llmScoreThreshold,
+        llmConfidenceThreshold,
+        enableLlmAuto,
       });
       toast('Đã khởi động job auto-discover!', { type: 'success' });
       setPhase('running');
@@ -1679,6 +1728,50 @@ function DiscoverGoogleAutoPanel() {
     } finally { setStopLoading(false); }
   };
 
+  // Manually close every open Lady Tools/AdsPower browser tab — for when Lady
+  // Tools looks stuck/wedged or the operator wants to free that RAM right now,
+  // independent of the account-cooldown pause state (that clears itself once
+  // an account's cooldown expires; this button is purely about the browser
+  // tabs, not the account quota).
+  const closeLadyTools = async () => {
+    setClosingLadyTools(true);
+    try {
+      const res = await crawlAffiliateApi.ladyToolsClose();
+      toast(`Đã đóng ${res.closed} tab Lady Tools.`, { type: 'success' });
+    } catch (e: unknown) {
+      toast(apiError(e), { type: 'error' });
+    } finally { setClosingLadyTools(false); }
+  };
+
+  // "Thử lại ngay" — shown only while paused (account pool exhausted/cooling
+  // down). Forces an immediate re-check instead of waiting for the next
+  // scheduled poll tick; the status poll below will pick up the result.
+  const retryLadyToolsNow = async () => {
+    setRetryingLadyTools(true);
+    try {
+      const res = await crawlAffiliateApi.ladyToolsRetryNow();
+      toast(res.triggered ? 'Đang kiểm tra lại…' : 'Batch trước vẫn đang chạy, chờ xử lý xong.', { type: 'info' });
+    } catch (e: unknown) {
+      toast(apiError(e), { type: 'error' });
+    } finally { setRetryingLadyTools(false); }
+  };
+
+  // Turn the auto-poll Lady Tools loop off/on mid-run — unlike closeLadyTools
+  // (only closes the tab open right now; the next tick opens a new one anyway),
+  // this actually stops the tick from opening any future tab. Main domain
+  // crawl keeps running unaffected either way.
+  const toggleLadyToolsAuto = async (disable: boolean) => {
+    setTogglingLadyToolsAuto(true);
+    try {
+      const res = disable
+        ? await crawlAffiliateApi.ladyToolsAutoDisable()
+        : await crawlAffiliateApi.ladyToolsAutoEnable();
+      toast(res.disabled ? 'Đã tắt Lady Tools tự động.' : 'Đã bật lại Lady Tools tự động.', { type: 'success' });
+    } catch (e: unknown) {
+      toast(apiError(e), { type: 'error' });
+    } finally { setTogglingLadyToolsAuto(false); }
+  };
+
   const toggleKeyword = (i: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -1687,9 +1780,18 @@ function DiscoverGoogleAutoPanel() {
     });
   };
 
-  const modelOptions = allModels.length > 0
-    ? [{ value: '', label: 'Auto (default)' }, ...allModels.map((m) => ({ value: m, label: m }))]
-    : [{ value: '', label: 'Auto (default)' }];
+  // Lady Tools (real Gemini web chat via AdsPower) — added as an explicit
+  // option here alongside Ollama/Gemini REST, same as LlmImproveLowScoreForm
+  // does further down. It can search Google on its own, so keyword suggestions
+  // can reflect programs/niches that exist right now instead of only what the
+  // base model memorized during training — see callLlm's Lady Tools branch on
+  // the backend (services/affiliate.service.js) for the actual routing.
+  const LADY_TOOLS_MODEL = 'ladytools-gemini';
+  const modelOptions = [
+    { value: '', label: 'Auto (default)' },
+    ...allModels.map((m) => ({ value: m, label: m })),
+    { value: LADY_TOOLS_MODEL, label: 'Lady Tools (Gemini web, có search)' },
+  ];
 
   // ── Phase: Setup ──────────────────────────────────────────────────────────
   if (phase === 'setup') {
@@ -1726,25 +1828,6 @@ function DiscoverGoogleAutoPanel() {
           <p className="text-[11px] text-[var(--text-muted)] mt-1">Mặc định dùng Gemini để sinh keyword. Chọn model Ollama để dùng local.</p>
         </div>
 
-        {/* Resource thresholds */}
-        <div>
-          <p className="text-xs font-medium text-[var(--text-muted)] mb-2">Ngưỡng tài nguyên (server tự tạm dừng nếu vượt)</p>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="CPU tối đa (%)" type="number" min="10" max="100" placeholder="80"
-              value={cpuMax} onChange={(e) => setCpuMax(e.target.value)} className="w-full" />
-            <Input label="RAM tối đa (%)" type="number" min="10" max="100" placeholder="80"
-              value={ramMax} onChange={(e) => setRamMax(e.target.value)} className="w-full" />
-          </div>
-        </div>
-
-        {/* Crawl params */}
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Số domain tối đa (limit)" type="number" placeholder="500"
-            value={limit} onChange={(e) => setLimit(e.target.value)} hint="Tổng domain sẽ crawl." className="w-full" />
-          <Input label="Batch size" type="number" placeholder="10"
-            value={batchSize} onChange={(e) => setBatchSize(e.target.value)} hint="Số domain/batch trước khi kiểm tra CPU/RAM." className="w-full" />
-        </div>
-
         {/* Skip old domains */}
         <label className="flex items-center gap-2.5 cursor-pointer select-none">
           <input
@@ -1756,6 +1839,62 @@ function DiscoverGoogleAutoPanel() {
           <span className="text-xs text-[var(--text)]">Bỏ qua domain đã có trong database</span>
           <span className="text-[10px] text-[var(--text-muted)]">(skipOld)</span>
         </label>
+
+        {/* Use LLM (Lady Tools auto-improve) at all this session */}
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={enableLlmAuto}
+            onChange={(e) => setEnableLlmAuto(e.target.checked)}
+            className="accent-[var(--accent)] w-3.5 h-3.5"
+          />
+          <span className="text-xs text-[var(--text)]">Dùng LLM (Lady Tools tự động cải thiện điểm thấp)</span>
+          <span className="text-[10px] text-[var(--text-muted)]">(enableLlmAuto)</span>
+        </label>
+        <p className="text-[11px] text-[var(--text-muted)] -mt-1.5">
+          Tắt nếu không muốn Lady Tools tự mở tab AdsPower trong lúc crawl — job vẫn crawl domain bình thường (regex-only),
+          chỉ không tự gửi domain điểm thấp qua LLM. Có thể bật/tắt lại bất cứ lúc nào khi job đang chạy ở card bên dưới.
+        </p>
+
+        {/* LLM score threshold */}
+        <div className={!enableLlmAuto ? 'opacity-50' : undefined}>
+          <label className="text-xs font-medium text-[var(--text-muted)] mb-1.5 block">
+            Ngưỡng điểm cho LLM extract (llmScoreThreshold)
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={llmScoreThreshold}
+            disabled={!enableLlmAuto}
+            onChange={(e) => setLlmScoreThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+            className="w-full rounded-lg border border-[var(--border)] bg-transparent px-3 py-2 text-xs text-[var(--text)] disabled:cursor-not-allowed"
+          />
+          <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
+            Domain có điểm ≤ ngưỡng này sẽ được tự động gom và gửi qua Lady Tools để cải thiện. Mặc định 30.
+            Domain đã qua LLM trong vòng 30 ngày gần nhất sẽ không bị extract lại.
+          </p>
+        </div>
+
+        {/* LLM confidence threshold */}
+        <div className={!enableLlmAuto ? 'opacity-50' : undefined}>
+          <label className="text-xs font-medium text-[var(--text-muted)] mb-1.5 block">
+            Ngưỡng độ tin cậy cho LLM extract (llmConfidenceThreshold)
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={llmConfidenceThreshold}
+            disabled={!enableLlmAuto}
+            onChange={(e) => setLlmConfidenceThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+            className="w-full rounded-lg border border-[var(--border)] bg-transparent px-3 py-2 text-xs text-[var(--text)] disabled:cursor-not-allowed"
+          />
+          <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
+            Domain có độ tin cậy (confidence × 100) ≤ ngưỡng này cũng sẽ được gửi qua Lady Tools, kể cả khi điểm số đã đạt —
+            bắt các trường hợp điểm tạm ổn nhưng thiếu nhiều trường dữ liệu. Mặc định 30.
+          </p>
+        </div>
 
         {/* Server stats — live auto-refresh every 5 s */}
         <div className="rounded-lg border border-[var(--border)] p-3 space-y-2">
@@ -1916,6 +2055,103 @@ function DiscoverGoogleAutoPanel() {
                 {s.slotAllocation ? `${s.slotAllocation.searchSlots}/${s.slotAllocation.crawlSlots}` : '—'}
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Auto Lady Tools improve (continuous mode) — accumulate-then-trigger:
+            waits for pendingCount to reach the trigger batch size, then runs a
+            Lady Tools pass automatically. Replaces the need to manually run
+            "AI Improve Low-Score (Sequential)" during continuous crawl. */}
+        {s && s.ladyToolsAuto && (
+          <div className="rounded-lg border border-[var(--border)] p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <p className="text-[11px] font-semibold text-[var(--text-muted)]">Lady Tools tự động cải thiện điểm thấp</p>
+                {s.ladyToolsAuto.disabled && (
+                  <span className="text-[9px] font-medium text-[var(--text-muted)] border border-[var(--border)] rounded px-1.5 py-0.5">Đã tắt</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {s.ladyToolsAuto.running && (
+                  <span className="text-[10px] font-medium text-amber-400 flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Đang xử lý…
+                  </span>
+                )}
+                <button
+                  onClick={() => toggleLadyToolsAuto(!s.ladyToolsAuto?.disabled)}
+                  disabled={togglingLadyToolsAuto}
+                  className="text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] rounded px-2 py-0.5 disabled:opacity-50"
+                  title={s.ladyToolsAuto.disabled
+                    ? 'Bật lại vòng lặp tự động — sẽ tự mở tab Lady Tools khi có domain điểm thấp cần cải thiện'
+                    : 'Tắt hẳn vòng lặp tự động — không tự mở tab Lady Tools nữa, crawl domain chính không bị ảnh hưởng'}
+                >
+                  {togglingLadyToolsAuto ? 'Đang xử lý…' : s.ladyToolsAuto.disabled ? 'Bật Lady Tools' : 'Tắt Lady Tools'}
+                </button>
+                <button
+                  onClick={closeLadyTools}
+                  disabled={closingLadyTools}
+                  className="text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)] rounded px-2 py-0.5 disabled:opacity-50"
+                  title="Đóng mọi tab Lady Tools/AdsPower đang mở (không ảnh hưởng trạng thái tài khoản/cooldown)"
+                >
+                  {closingLadyTools ? 'Đang đóng…' : 'Đóng Lady Tools'}
+                </button>
+              </div>
+            </div>
+
+            {/* Account-cooldown pause — Lady Tools' Gmail account pool is
+                fully exhausted/cooling down, distinct from tab cleanup above.
+                See getLadyToolsAccountStatus's own comment on the backend for
+                why these are independent: closing tabs never affects this. */}
+            {s.ladyToolsAuto.paused && (
+              <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 space-y-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-medium text-amber-400">Tạm dừng — hết tài khoản Lady Tools khả dụng</p>
+                    {s.ladyToolsAuto.pausedReason && (
+                      <p className="text-[10px] text-[var(--text-muted)]">{s.ladyToolsAuto.pausedReason}</p>
+                    )}
+                    {s.ladyToolsAuto.nextRetryAt && (
+                      <p className="text-[10px] text-[var(--text-muted)]">
+                        Thử lại sau: {new Date(s.ladyToolsAuto.nextRetryAt).toLocaleString('vi-VN')}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={retryLadyToolsNow}
+                    disabled={retryingLadyTools}
+                    className="shrink-0 text-[10px] font-medium text-amber-400 hover:text-amber-300 border border-amber-500/30 rounded px-2 py-0.5 disabled:opacity-50"
+                    title="Kiểm tra lại ngay xem đã có tài khoản khả dụng chưa, không cần chờ tick tự động"
+                  >
+                    {retryingLadyTools ? 'Đang thử…' : 'Thử lại ngay'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
+              <div>
+                <p className="text-[var(--text-muted)]">Đang chờ</p>
+                <p className="font-bold text-blue-400 tabular-nums">{s.ladyToolsAuto.pendingCount}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-muted)]">Đã cải thiện</p>
+                <p className="font-bold text-green-400 tabular-nums">{s.ladyToolsAuto.totalImproved}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-muted)]">Đã xoá</p>
+                <p className="font-bold text-red-400 tabular-nums">{s.ladyToolsAuto.totalDeleted}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-muted)]">Lỗi</p>
+                <p className="font-bold text-amber-400 tabular-nums">{s.ladyToolsAuto.totalErrors}</p>
+              </div>
+            </div>
+            {s.ladyToolsAuto.lastRunAt && (
+              <p className="text-[10px] text-[var(--text-muted)]">
+                Lần chạy gần nhất: {new Date(s.ladyToolsAuto.lastRunAt).toLocaleTimeString('vi-VN')}
+              </p>
+            )}
           </div>
         )}
 
@@ -2286,15 +2522,20 @@ const ACTION_CONTENT: Record<
   discoverGoogleAuto: {
     guide: (
       <>
-        <p><strong className="text-[var(--text)]">Discover Google Auto</strong> để AI tự sinh từ khóa affiliate từ bộ template 60+ queries, sau đó tự động crawl Google và lưu domain mới.</p>
-        <p>Chọn <strong className="text-[var(--text)]">Auto Apply</strong> để chạy hoàn toàn tự động, hoặc <strong className="text-[var(--text)]">Manual Select</strong> để xem và chọn keyword trước.</p>
-        <p>Job chạy nền — hệ thống tự tạm dừng khi CPU/RAM vượt ngưỡng và tiếp tục khi tài nguyên ổn định.</p>
+        <p><strong className="text-[var(--text)]">Discover Google Auto</strong> chạy một job nền liên tục: AI sinh từ khóa affiliate, tự động tìm kiếm Google, crawl domain mới và ghi vào hàng đợi — không có giới hạn số lượng, job chạy cho tới khi bạn bấm dừng.</p>
+        <p><strong className="text-[var(--text)]">Model AI sinh keyword</strong>: chọn <em>Auto (default)</em> để dùng model mặc định của hệ thống, chọn một model cụ thể (Gemini/Ollama...) trong danh sách, hoặc chọn <strong className="text-[var(--text)]">Lady Tools (Gemini web, có search)</strong> — model này chạy qua trình duyệt Gemini web thật nên có thể tự tra cứu Google trước khi trả lời, gợi ý keyword sát với chương trình affiliate đang tồn tại thay vì chỉ dựa vào dữ liệu huấn luyện cũ.</p>
+        <p><strong className="text-[var(--text)]">Chế độ áp dụng keyword</strong>: <strong className="text-[var(--text)]">Auto Apply</strong> — AI sinh keyword xong chạy job ngay, không cần duyệt lại; <strong className="text-[var(--text)]">Manual Select</strong> — xem toàn bộ danh sách keyword AI vừa sinh, tick bỏ những keyword không phù hợp trước khi bắt đầu.</p>
+        <p><strong className="text-[var(--text)]">Bỏ qua domain cũ (skipOld)</strong>: bật để job không crawl lại domain đã có sẵn trong DB và còn mới (chưa quá hạn freshness) — giúp job tập trung vào domain thật sự mới, tiết kiệm thời gian.</p>
+        <p>Trước khi bấm bắt đầu, panel hiển thị CPU/RAM hiện tại của server (tự refresh mỗi 5s) để bạn cân nhắc thời điểm chạy — nhưng đây chỉ là thông tin tham khảo, không phải ngưỡng chặn: việc tạm dừng khi tài nguyên căng là cơ chế luôn bật sẵn ở backend (4 mức: giảm tải nhẹ → tạm dừng crawl → dừng tìm kiếm → dừng khẩn cấp), không cấu hình được từ UI.</p>
+        <p>Trong lúc chạy, job hiển thị: số domain đang chờ trong hàng đợi, số lượng đã tìm/crawl/lỗi, tiến độ theo từng keyword, và một card riêng theo dõi <strong className="text-[var(--text)]">Lady Tools tự động cải thiện điểm thấp</strong> — hệ thống tự gom các domain điểm ≤30 chưa qua LLM, đủ 5 domain thì tự gọi Lady Tools cải thiện/xoá mà không cần thao tác thêm.</p>
       </>
     ),
     examples: [
-      { label: 'Auto hoàn toàn', desc: 'Chọn Auto Apply → Bắt đầu → AI tự sinh 60+ keyword và crawl liên tục đến khi đủ limit.' },
-      { label: 'Chọn keyword thủ công', desc: 'Chọn Manual Select → xem danh sách keyword AI sinh → tick những keyword muốn → Crawl.' },
-      { label: 'Kiểm tra server trước', desc: 'Nhấn "Kiểm tra" để xem CPU/RAM hiện tại trước khi chạy — tránh khởi động khi server đang bận.' },
+      { label: 'Auto hoàn toàn với Lady Tools', desc: 'Chọn model "Lady Tools (Gemini web, có search)" → Auto Apply → Bắt đầu — AI tự tra Google sinh keyword thời sự và crawl liên tục, không giới hạn, cho tới khi bạn dừng job.' },
+      { label: 'Duyệt keyword trước khi chạy', desc: 'Chọn Manual Select → Bắt đầu → xem danh sách keyword AI sinh ra → bỏ tick những keyword lệch chủ đề (VD: trùng ngành đã crawl nhiều) → bấm Crawl để chỉ chạy phần đã chọn.' },
+      { label: 'Chỉ lấy domain thật sự mới', desc: 'Bật "Bỏ qua domain cũ" trước khi bắt đầu — job sẽ không tốn thời gian crawl lại domain đã có sẵn và còn trong hạn freshness.' },
+      { label: 'Theo dõi Lady Tools tự động', desc: 'Trong lúc job đang chạy, nhìn card "Lady Tools tự động cải thiện điểm thấp" để biết đang có bao nhiêu domain điểm thấp chờ xử lý, đã cải thiện/xoá bao nhiêu — không cần chạy tay nút "AI Improve Low-Score" riêng nếu chỉ muốn dọn nền song song với crawl.' },
+      { label: 'Kiểm tra tài nguyên server trước khi chạy', desc: 'Xem CPU/RAM hiển thị sẵn ở màn hình setup (tự cập nhật mỗi 5s) — nếu server đang bận, cân nhắc đợi thay vì bắt đầu ngay; hệ thống vẫn tự bảo vệ khi chạy nhưng khởi động lúc server rảnh sẽ đạt tốc độ tốt hơn.' },
     ],
   },
   discoverGoogle: {
@@ -2369,7 +2610,7 @@ const ACTION_CONTENT: Record<
       <>
         <p>Lấy danh sách domain từ API <strong className="text-[var(--text)]">websites/links</strong> (máy chủ 192.168.1.16:4000), xem trước toàn bộ danh sách, rồi mới crawl.</p>
         <p><strong className="text-[var(--text)]">getNew</strong>: Lọc theo trạng thái — <em>Mới</em> chỉ lấy domain chưa crawl, <em>Cũ</em> lấy domain đã có trong DB, <em>Tất cả</em> không lọc.</p>
-        <p><strong className="text-[var(--text)]">Nguồn</strong>: Lọc theo nguồn dữ liệu — trustpilot, futurepedia, g2, capterra, producthunt. Để "Tất cả" để lấy từ mọi nguồn.</p>
+        <p><strong className="text-[var(--text)]">Nguồn</strong>: Lọc theo nguồn dữ liệu — trustpilot, futurepedia, g2, capterra, producthunt. Để &quot;Tất cả&quot; để lấy từ mọi nguồn.</p>
         <p><strong className="text-[var(--text)]">Trang / Số lượng</strong>: Phân trang kết quả — cả hai phải được điền cùng nhau.</p>
       </>
     ),
@@ -2436,12 +2677,23 @@ export default function AffiliateActionsPage() {
   );
   const [activeTab, setActiveTab] = useState<ActionTab>('guide');
 
-  useEffect(() => {
+  // Adjust activeId DURING render (not in an effect) when the permission set
+  // changes and the current selection is no longer visible — React's
+  // documented pattern for "reset/adjust state when a computed value
+  // changes" (see "you might not need an effect"). Uses useState (not
+  // useRef) to track the previous perms key — this project's react-hooks
+  // lint config (React Compiler-backed) flags ref reads/writes during
+  // render even for this otherwise-sanctioned pattern, but a plain setState
+  // call during render is explicitly allowed and bails out re-renders when
+  // the value is unchanged.
+  const permsKey = perms.join(',');
+  const [lastPermsKey, setLastPermsKey] = useState(permsKey);
+  if (lastPermsKey !== permsKey) {
+    setLastPermsKey(permsKey);
     if (visibleItems.length > 0 && !visibleItems.find((i) => i.id === activeId)) {
       setActiveId(visibleItems[0].id);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [perms.join(',')]);
+  }
 
   const handleMenuSelect = (id: MenuItemId) => {
     setActiveId(id);
@@ -2521,19 +2773,19 @@ export default function AffiliateActionsPage() {
         {/* ── Content panel ── */}
         <div className="flex-1 min-w-0">
           <Card title={getMenuLabel(active)}>
-            {activeId !== 'bypassAdvisor' && activeId !== 'discoverGoogleAuto' && (
+            {activeId !== 'bypassAdvisor' && (
               <ActionTabs activeTab={activeTab} onTabChange={setActiveTab} />
             )}
 
-            {activeTab === 'guide' && activeId !== 'bypassAdvisor' && activeId !== 'discoverGoogleAuto' && content && (
+            {activeTab === 'guide' && activeId !== 'bypassAdvisor' && content && (
               <GuideBlock>{content.guide}</GuideBlock>
             )}
 
-            {activeTab === 'examples' && activeId !== 'bypassAdvisor' && activeId !== 'discoverGoogleAuto' && content && (
+            {activeTab === 'examples' && activeId !== 'bypassAdvisor' && content && (
               <ExampleBlock items={content.examples} />
             )}
 
-            {(activeTab === 'action' || activeId === 'bypassAdvisor' || activeId === 'discoverGoogleAuto') && (
+            {(activeTab === 'action' || activeId === 'bypassAdvisor') && (
               <>
                 {activeId === 'startCrawl'         && <StartCrawlForm />}
                 {activeId === 'discoverGoogle'      && <DiscoverGoogleForm />}

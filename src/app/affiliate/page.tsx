@@ -10,6 +10,8 @@ import Select from '@/components/ui/Select';
 import Pagination from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
+import { canAny } from '@/lib/permissions';
+import { PermissionSubject as S, PermissionAction as A } from '@/constants/permissions';
 import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet } from 'lucide-react';
 import { AffiliateSubPage } from '@/lib/api';
 import Link from 'next/link';
@@ -864,7 +866,16 @@ function ScoreBadge({ score }: { score: number }) {
 export default function AffiliatePage() {
   const { toast } = useToast();
   const { user } = useAuth();
-  const isSuperAdmin = (user?.permissions ?? []).includes('all:manage');
+  const perms = user?.permissions ?? [];
+  const isSuperAdmin = perms.includes('all:manage');
+  // Gate for the "Crawl thêm" link into /affiliate/actions — that page's own
+  // MENU_ITEMS already filters each individual action by permission, but a
+  // plain user with neither affiliate:update nor affiliate:create would land
+  // on an empty/near-empty menu there. Checking the same two permissions
+  // here (the ones every MENU_ITEMS entry uses) hides the entry point
+  // instead of letting a normal user click through to a page with nothing
+  // they can actually run.
+  const canCrawl = canAny(perms, [[S.AFFILIATE, A.UPDATE], [S.AFFILIATE, A.CREATE]]);
   const t = useTranslations('affiliate');
   const tc = useTranslations('common');
   const tExport = useTranslations('affiliate.export');
@@ -1085,16 +1096,20 @@ export default function AffiliatePage() {
             <Button variant="secondary" size="sm" icon={<BarChart2 size={13} />}>{t('statsButton')}</Button>
           </Link>
           <Button variant="secondary" size="sm" icon={<Download size={13} />}
+            className="!bg-emerald-600 hover:!bg-emerald-700 !text-white !border-emerald-600"
             onClick={() => setShowExportModal(true)}>
             {tExport('button')}
           </Button>
           <Button variant="secondary" size="sm" icon={<Upload size={13} />}
+            className="!bg-blue-600 hover:!bg-blue-700 !text-white !border-blue-600"
             onClick={() => setShowImportModal(true)}>
             {tImport('button')}
           </Button>
-          <Link href="/affiliate/actions">
-            <Button size="sm">{t('crawlAdd')}</Button>
-          </Link>
+          {canCrawl && (
+            <Link href="/affiliate/actions">
+              <Button size="sm">{t('crawlAdd')}</Button>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -1240,6 +1255,7 @@ export default function AffiliatePage() {
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-[var(--accent)]/40 bg-indigo-950/30">
           <span className="text-sm text-indigo-300 font-medium">{tc('selected', { count: selected.size })}</span>
           <Button variant="secondary" size="sm" icon={<Download size={12} />}
+            className="!bg-emerald-600 hover:!bg-emerald-700 !text-white !border-emerald-600"
             onClick={() => setShowExportModal(true)}>
             {tExport('buttonSelected')}
           </Button>

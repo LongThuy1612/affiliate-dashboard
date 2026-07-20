@@ -86,6 +86,16 @@ export interface AffiliateSubPage {
   screenshotAt?: string | null;
   crawledAt: string;
   updatedAt: string;
+  // Present only for sub-pages written by persistVerifiedCitations (LLM
+  // search citation verification) instead of the regular crawl pipeline —
+  // see affiliateCrawler.js. verifiedFields lists which field(s) were
+  // confirmed against this exact page; pageTextExcerpt is the evidence text
+  // (first 5000 chars) a human can spot-check against the claimed value.
+  rawPageData?: {
+    verifiedFields?: Record<string, string | number>;
+    pageTextExcerpt?: string;
+    verifiedAt?: string;
+  } | null;
 }
 
 export interface AffiliateProgram {
@@ -683,15 +693,54 @@ export const crawlAffiliateApi = {
   ),
 
   llmImprove: (domains: string[], model?: string) =>
-    request<{ total: number; improved: number; errors: number }>('/crawl-affiliate/llm-improve', {
+    request<{
+      total: number; improved: number; errors: number;
+      results: Array<{ domain: string; found?: boolean; updated?: boolean; error?: string }>;
+    }>('/crawl-affiliate/llm-improve', {
       method: 'POST',
       body: JSON.stringify({ domains, ...(model ? { model } : {}) }),
     }),
 
   ladyToolsImprove: (domains: string[]) =>
-    request<{ total: number; improved: number; deleted: number; errors: number }>('/crawl-affiliate/lady-tools-improve', {
+    request<{
+      total: number; improved: number; deleted: number; errors: number;
+      results: Array<{ domain: string; updated?: boolean; deleted?: boolean; error?: string; reason?: string; affiliateScore?: number }>;
+    }>('/crawl-affiliate/lady-tools-improve', {
       method: 'POST',
       body: JSON.stringify({ domains }),
+    }),
+
+  // Manually close every open AdsPower/Lady Tools browser tab — for stuck/
+  // wedged Lady Tools or just freeing RAM on demand, independent of account
+  // cooldown state (see DiscoverAutoStatus.ladyToolsAuto.paused for that).
+  ladyToolsClose: () =>
+    request<{ closed: number }>('/crawl-affiliate/lady-tools-close', {
+      method: 'POST',
+      body: '{}',
+    }),
+
+  // Force an immediate account-status re-check + batch attempt, skipping the
+  // up-to-1-min wait for the next scheduled auto-poll tick. Meant for the
+  // "Thử lại ngay" button shown while ladyToolsAuto.paused is true.
+  ladyToolsRetryNow: () =>
+    request<{ triggered: boolean }>('/crawl-affiliate/lady-tools-retry-now', {
+      method: 'POST',
+      body: '{}',
+    }),
+
+  // Turn the auto-poll Lady Tools loop off/on without touching the main domain
+  // crawl — unlike ladyToolsClose (only closes whatever tab is open right now;
+  // the next scheduled tick opens a new one anyway), this stops the tick from
+  // opening any future tab until re-enabled. See DiscoverAutoStatus.ladyToolsAuto.disabled.
+  ladyToolsAutoDisable: () =>
+    request<{ disabled: boolean }>('/crawl-affiliate/lady-tools-auto-disable', {
+      method: 'POST',
+      body: '{}',
+    }),
+  ladyToolsAutoEnable: () =>
+    request<{ disabled: boolean }>('/crawl-affiliate/lady-tools-auto-enable', {
+      method: 'POST',
+      body: '{}',
     }),
 
   discoverAuto: (params: {
@@ -702,6 +751,20 @@ export const crawlAffiliateApi = {
     batchSize?: number;
     skipOld?: boolean;
     autoRestart?: boolean;
+    // Score threshold (inclusive) below which a domain qualifies for the auto Lady
+    // Tools LLM-improve pass. Backend default 30 if omitted.
+    llmScoreThreshold?: number;
+    // Confidence threshold (0-100 scale, inclusive) below which a domain ALSO
+    // qualifies, independent of score — catches passable-score-but-low-confidence
+    // domains. Backend default 30 if omitted.
+    llmConfidenceThreshold?: number;
+    // Whether this session should run the auto Lady Tools LLM-improve loop at
+    // all. Continuous crawl's own Phase 1A pass is always regex-only — the
+    // ladyToolsAuto background poll is the ONLY place LLM enrichment happens
+    // during continuous crawl, so this is the real "use LLM or not" switch for
+    // a run (llmScoreThreshold/llmConfidenceThreshold above only tune WHICH
+    // domains qualify once the loop is already on). Backend default true if omitted.
+    enableLlmAuto?: boolean;
   }) => request<{ started: boolean; message: string }>(
     '/crawl-affiliate/discover-auto',
     { method: 'POST', body: JSON.stringify(params) },
@@ -758,6 +821,27 @@ export interface DiscoverAutoStatus {
   slotAllocation?: { searchSlots: number; crawlSlots: number } | null;
   cycle?: number;
   _ramPressure?: string | null;
+  // Auto Lady Tools improve (continuous mode only) — accumulates low-score,
+  // never-LLM'd domains and runs them through Lady Tools once enough have
+  // built up. See _runContinuousCrawl's _ladyToolsAutoInterval on the backend.
+  ladyToolsAuto?: {
+    running: boolean;
+    pendingCount: number;
+    lastRunAt: string | null;
+    totalImproved: number;
+    totalDeleted: number;
+    totalErrors: number;
+    // Set when getLadyToolsAccountStatus() reports no Gmail account is
+    // currently usable (all exhausted/cooling down) — the tick is skipped
+    // rather than attempting a call that would fail anyway.
+    paused?: boolean;
+    pausedReason?: string | null;
+    nextRetryAt?: string | null;
+    // true when the operator has manually turned off the auto-poll loop via
+    // ladyToolsAutoDisable (or started the session with enableLlmAuto:false) —
+    // distinct from `paused`, which is automatic/temporary (account cooldown).
+    disabled?: boolean;
+  } | null;
 }
 
 export interface CrawlDomainsBatchStatus {
