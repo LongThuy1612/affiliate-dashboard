@@ -1,6 +1,19 @@
 import { getAccessToken, getRefreshToken, setTokens, clearTokens, authApi } from './auth';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3008/api';
+// Backend origin without the /api suffix — for resolving asset paths like
+// Announcement.imageUrl (served from the backend's own /uploads, not this
+// Next.js app's public/uploads) into absolute URLs.
+const API_ORIGIN = BASE_URL.replace(/\/api\/?$/, '');
+
+// Announcement.imageUrl comes back as a root-relative path (e.g.
+// "/uploads/x.jpg"). Used bare in an <img src>, that resolves against this
+// Next.js app's own origin, which has no /uploads route — the asset only
+// exists on the backend. Absolute URLs (http://...) pass through unchanged.
+export function resolveAssetUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_ORIGIN}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 // Access tokens expire after 1h (see services/auth.service.js ACCESS_TOKEN_TTL).
 // Without this, any request made after the token expires throws a raw 401 and

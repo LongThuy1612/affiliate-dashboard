@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
-import { configApi, type Announcement } from '@/lib/api';
+import { configApi, resolveAssetUrl, type Announcement } from '@/lib/api';
 import { useToast } from '@/components/ui/Toaster';
 import Link from 'next/link';
 import {
@@ -147,7 +147,7 @@ function AnnouncementModal({
             {form.imageUrl ? (
               <div className="relative rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface-2)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={form.imageUrl} alt="preview" className="w-full h-auto block" />
+                <img src={resolveAssetUrl(form.imageUrl)} alt="preview" className="w-full h-auto block" />
                 <button
                   onClick={() => set('imageUrl', undefined)}
                   className="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
@@ -437,7 +437,12 @@ export default function AnnouncementsPage() {
                   {/* Thumbnail */}
                   {item.imageUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.imageUrl} alt={item.title} className="w-full h-auto block border-b border-[var(--border)]" />
+                    <img
+                      src={resolveAssetUrl(item.imageUrl)}
+                      alt={item.title}
+                      className="w-full h-auto block border-b border-[var(--border)]"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
                   )}
 
                   <div className="flex items-start gap-3 px-4 py-3">

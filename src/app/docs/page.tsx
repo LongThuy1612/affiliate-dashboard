@@ -1219,8 +1219,9 @@ export default function DocsPage() {
             </p>
           </Prose>
           <Callout type="tip">
-            Nhấp mở phần <strong>AI Keyword Suggester</strong> ngay bên dưới textarea. Nhập một chủ đề (ví dụ: <em>"email marketing SaaS"</em>), chọn model Ollama, nhấn <strong>Suggest</strong>.
+            Nhấp mở phần <strong>AI Keyword Suggester</strong> ngay bên dưới textarea. Nhập một chủ đề (ví dụ: <em>"email marketing SaaS"</em>), chọn model (Auto, một model Ollama cụ thể, hoặc <strong>Lady Tools</strong> để AI tự tra Google trước khi gợi ý), nhấn <strong>Suggest</strong>.
             AI sẽ gợi ý 8–15 từ khóa tìm kiếm phù hợp. Nhấp <code className="bg-[var(--surface-2)] px-1 rounded text-xs">+</code> vào từ khóa nào để thêm vào danh sách, hoặc <strong>Add all</strong> để thêm tất cả.
+            Xem thêm ở mục <strong>LLM Model Tiers → Lady Tools</strong>.
           </Callout>
 
           <H3>Crawl Single Domain / Multiple Domains</H3>
@@ -1470,7 +1471,7 @@ export default function DocsPage() {
               ['Score Before / After', 'Điểm chất lượng trước và sau khi LLM chạy. Nếu After > Before = AI đã cải thiện được.'],
               ['Score Δ', 'Mức tăng/giảm. Màu xanh = tốt hơn, màu đỏ = tệ hơn (hiếm gặp).'],
               ['Conf Before / After', 'Độ tin cậy dữ liệu thay đổi thế nào sau AI.'],
-              ['Model', 'Model Ollama nào đã được dùng (deepseek-coder, phi4:latest, hoặc mistral).'],
+              ['Model', 'Model nào đã xử lý domain này — Ollama (deepseek-coder, phi4:latest, mistral), Gemini REST (gemini-1.5-flash…), hoặc ladytools-gemini.'],
               ['Duration', 'Thời gian AI xử lý — để đánh giá tốc độ model.'],
             ].map(([k, v]) => (
               <div key={k} className="flex gap-3 items-start p-3 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]">
@@ -1515,8 +1516,8 @@ export default function DocsPage() {
           <H2 icon={Cpu}>LLM Model Tiers — tự động chọn model</H2>
           <Prose>
             <p>
-              Hệ thống hỗ trợ hai provider LLM: <strong className="text-[var(--text)]">Ollama</strong> (local, cần cài) và <strong className="text-[var(--text)]">Gemini</strong> (Google cloud, miễn phí, không cần cài).
-              Model được chọn tự động theo tier khi dùng Ollama; với Gemini bạn chọn thủ công qua Re-crawl modal.
+              Hệ thống hỗ trợ ba provider LLM: <strong className="text-[var(--text)]">Ollama</strong> (local, cần cài), <strong className="text-[var(--text)]">Gemini REST</strong> (Google cloud, miễn phí, không cần cài) và <strong className="text-[var(--text)]">Lady Tools</strong> (Gemini web thật, có khả năng tự search Google).
+              Model được chọn tự động theo tier khi dùng Ollama; với Gemini REST và Lady Tools bạn chọn thủ công qua Re-crawl modal.
             </p>
           </Prose>
 
@@ -1575,11 +1576,49 @@ export default function DocsPage() {
             ))}
           </div>
           <Callout type="warning">
-            Gemini chỉ xử lý <strong>1 domain mỗi lần</strong> qua Re-crawl modal. Bulk LLM Improve không hỗ trợ Gemini để tránh vượt rate limit miễn phí của Google.
+            Gemini REST chỉ xử lý <strong>1 domain mỗi lần</strong> qua Re-crawl modal. Bulk LLM Improve không hỗ trợ Gemini REST để tránh vượt rate limit miễn phí của Google.
+          </Callout>
+
+          <H3>Lady Tools — Gemini web thật, có search Google</H3>
+          <Prose>
+            <p>
+              Model <code className="bg-[var(--surface-2)] px-1 rounded text-xs font-mono">ladytools-gemini</code> khác hẳn hai nhóm ở trên: thay vì gọi REST API của Google, hệ thống gửi câu hỏi tới một
+              trình duyệt Gemini web thật (qua một automation server nội bộ chạy sẵn trên máy), y hệt việc một người mở gemini.google.com và tự gõ câu hỏi. Vì vậy nó có thể{' '}
+              <strong className="text-[var(--text)]">tự tra cứu Google trước khi trả lời</strong> — hữu ích khi cần thông tin affiliate program hiện tại (URL đăng ký, tỷ lệ hoa hồng mới) thay vì chỉ dựa vào dữ liệu huấn luyện cũ của model.
+            </p>
+            <p>
+              Không cần cấu hình API key (không dùng REST API của Google nên không tính vào quota Gemini REST), và không bị giới hạn "1 domain mỗi lần" như Gemini REST — hỗ trợ cả extract từng domain lẫn xử lý theo lô (batch).
+            </p>
+          </Prose>
+          <div className="flex flex-wrap gap-2 my-2">
+            <Tag color="indigo">Có search Google</Tag>
+            <Tag color="green">Không cần API key</Tag>
+            <Tag color="slate">Chậm hơn REST — mỗi lần gọi qua trình duyệt thật</Tag>
+          </div>
+          <Prose>
+            <p>Lady Tools xuất hiện ở hai nơi trong hệ thống:</p>
+          </Prose>
+          <div className="space-y-2 my-3">
+            {[
+              ['Re-crawl modal (extract dữ liệu)', 'Chọn model "Lady Tools (Gemini web, có search)" khi Re-crawl một domain cụ thể — xem mục Danh sách chương trình.'],
+              ['AI Keyword Suggester (sinh từ khóa)', 'Trong /affiliate/actions, chọn Lady Tools làm model sinh keyword để AI tự tra Google tìm chủ đề/chương trình affiliate đang thời sự thay vì chỉ nhớ lại từ lúc huấn luyện.'],
+            ].map(([title, desc]) => (
+              <div key={title} className="flex gap-3 p-3 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]">
+                <Sparkles size={12} className="text-indigo-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-semibold text-[var(--text)]">{title}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <Callout type="info">
+            Trong <strong>Actions & Crawl</strong>, mục <strong>"Lady Tools tự động cải thiện điểm thấp"</strong> chạy nền song song với continuous crawl: hệ thống tự gom các domain điểm thấp (mặc định score ≤ 30) chưa từng qua LLM,
+            đủ một lô thì tự gửi qua Lady Tools để cải thiện hoặc xoá nếu xác nhận không phải chương trình thật — không cần bấm "AI Improve Low-Score" thủ công.
           </Callout>
 
           <Callout type="info">
-            Khi dùng nút <strong>Re-crawl</strong> trên từng domain, bạn có thể chọn <em>Auto</em> (Ollama tự chọn tier), chọn model Ollama cụ thể, hoặc chọn model Gemini. Hai nhóm được hiển thị riêng biệt trong modal.
+            Khi dùng nút <strong>Re-crawl</strong> trên từng domain, bạn có thể chọn <em>Auto</em> (Ollama tự chọn tier), chọn model Ollama cụ thể, chọn model Gemini REST, hoặc chọn Lady Tools. Các nhóm được hiển thị riêng biệt trong modal.
           </Callout>
 
           <Callout type="tip">

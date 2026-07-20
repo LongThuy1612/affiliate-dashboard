@@ -6,6 +6,7 @@ import { affiliateApi, AffiliateProgram, AffiliateSubPage, AffiliateFetchLog, ve
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toaster';
+import { useAuth } from '@/context/AuthContext';
 import {
   ArrowLeft, ExternalLink, Trash2, CheckCircle2, XCircle,
   BadgeCheck, Sparkles, Globe, Link2, Clock, RefreshCw,
@@ -355,6 +356,8 @@ export default function AffiliateDetailPage() {
   const { domain } = useParams<{ domain: string }>();
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isSuperAdmin = (user?.permissions ?? []).includes('all:manage');
   const t  = useTranslations('affiliateDetail');
   const tc = useTranslations('common');
 
@@ -450,7 +453,7 @@ export default function AffiliateDetailPage() {
     : undefined;
 
   return (
-    <div className="p-6 space-y-5 max-w-4xl">
+    <div className="p-6 space-y-5">
       {/* Header */}
       <div className="flex items-start gap-3">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={() => router.push('/affiliate')}>
@@ -470,14 +473,16 @@ export default function AffiliateDetailPage() {
               <Button variant="secondary" size="sm" icon={<ExternalLink size={13} />}>{t('signup')}</Button>
             </a>
           )}
-          <Button variant="danger" size="sm" loading={deleting} icon={<Trash2 size={13} />} onClick={handleDelete}>
-            {tc('delete')}
-          </Button>
+          {isSuperAdmin && (
+            <Button variant="danger" size="sm" loading={deleting} icon={<Trash2 size={13} />} onClick={handleDelete}>
+              {tc('delete')}
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Overview gauges */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* Overview gauges + status */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
           <p className="text-xs text-[var(--text-muted)] mb-2">{t('labels.score')}</p>
           <ScoreGauge score={program.affiliateScore} />
@@ -487,22 +492,23 @@ export default function AffiliateDetailPage() {
           <p className="text-xs text-[var(--text-muted)] mb-2">{t('labels.confidence')}</p>
           <ConfidenceGauge value={program.confidence} />
         </div>
-      </div>
-
-      {/* Status badges */}
-      <div className="flex flex-wrap gap-2">
-        <Badge variant={program.commissionType === 'recurring' ? 'success' : program.commissionType === 'one_time' ? 'accent' : 'muted'}>
-          {program.commissionType === 'one_time' ? 'One-time' : program.commissionType === 'recurring' ? 'Recurring' : 'Unknown type'}
-        </Badge>
-        <Badge variant={program.signupUrlVerified ? 'success' : 'muted'}>
-          {program.signupUrlVerified
-            ? <span className="flex items-center gap-1"><CheckCircle2 size={11} />{t('urlVerified')}</span>
-            : <span className="flex items-center gap-1"><XCircle size={11} />{t('urlUnverified')}</span>}
-        </Badge>
-        {program.llmEnriched && <Badge variant="accent"><span className="flex items-center gap-1"><Sparkles size={10} />{t('llmEnriched')}</span></Badge>}
-        {program.affiliateNetwork && <Badge variant="default">{program.affiliateNetwork}</Badge>}
-        <Badge variant="muted">{t('tier')}: {program.fingerprintTier}</Badge>
-        <Badge variant="muted">{t('crawledTimes', { count: program.crawlCount })}</Badge>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+          <p className="text-xs text-[var(--text-muted)] mb-2">{t('labels.status')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={program.commissionType === 'recurring' ? 'success' : program.commissionType === 'one_time' ? 'accent' : 'muted'}>
+              {program.commissionType === 'one_time' ? 'One-time' : program.commissionType === 'recurring' ? 'Recurring' : 'Unknown type'}
+            </Badge>
+            <Badge variant={program.signupUrlVerified ? 'success' : 'muted'}>
+              {program.signupUrlVerified
+                ? <span className="flex items-center gap-1"><CheckCircle2 size={11} />{t('urlVerified')}</span>
+                : <span className="flex items-center gap-1"><XCircle size={11} />{t('urlUnverified')}</span>}
+            </Badge>
+            {program.llmEnriched && <Badge variant="accent"><span className="flex items-center gap-1"><Sparkles size={10} />{t('llmEnriched')}</span></Badge>}
+            {program.affiliateNetwork && <Badge variant="default">{program.affiliateNetwork}</Badge>}
+            <Badge variant="muted">{t('tier')}: {program.fingerprintTier}</Badge>
+            <Badge variant="muted">{t('crawledTimes', { count: program.crawlCount })}</Badge>
+          </div>
+        </div>
       </div>
 
       {/* Commission & Payout */}
@@ -711,96 +717,99 @@ export default function AffiliateDetailPage() {
         </div>
       )}
 
-      {/* Rate History */}
-      {Array.isArray(program.rateHistory) && program.rateHistory.length > 0 && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-          <SectionHeader icon={<TrendingUp size={14} />} title={`Rate History${program.rateChangeCount ? ` — ${program.rateChangeCount} change${program.rateChangeCount > 1 ? 's' : ''}` : ' — stable'}`} />
-          <div className="px-5 py-3 space-y-2">
-            {program.rateHistory.map((entry, i) => {
-              const prev = program.rateHistory![i + 1];
-              const changed = prev && entry.rate !== prev.rate;
-              return (
-                <div key={i} className="flex items-center gap-3 text-xs">
-                  <span className="text-[var(--text-muted)] tabular-nums w-32 shrink-0">
-                    {new Date(entry.crawledAt).toLocaleDateString()}
-                  </span>
-                  <span className={clsx(
-                    'font-semibold font-mono',
-                    entry.rate ? (i === 0 ? 'text-green-400' : 'text-[var(--text)]') : 'text-[var(--text-muted)]'
-                  )}>
-                    {entry.rate ?? 'n/a'}
-                  </span>
-                  <span className="text-[var(--text-muted)]">{entry.type}</span>
-                  {changed && (
-                    <span className="text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/30">changed</span>
-                  )}
-                  {i === 0 && <span className="text-[10px] text-indigo-400 font-semibold px-1.5 py-0.5 rounded bg-indigo-900/30">latest</span>}
-                </div>
-              );
-            })}
-            <p className="text-[10px] text-[var(--text-muted)] pt-1">
-              {program.rateChangeCount === 0
-                ? 'Rate has been consistent across all crawls — high reliability.'
-                : program.rateChangeCount! <= 2
-                  ? 'Rate changed occasionally — verify before using.'
-                  : 'Rate changed frequently — low reliability, manual verification recommended.'}
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Rate History + Screenshot */}
+      {(Array.isArray(program.rateHistory) && program.rateHistory.length > 0) || program.screenshotAt ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {Array.isArray(program.rateHistory) && program.rateHistory.length > 0 && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+              <SectionHeader icon={<TrendingUp size={14} />} title={`Rate History${program.rateChangeCount ? ` — ${program.rateChangeCount} change${program.rateChangeCount > 1 ? 's' : ''}` : ' — stable'}`} />
+              <div className="px-5 py-3 space-y-2">
+                {program.rateHistory.map((entry, i) => {
+                  const prev = program.rateHistory![i + 1];
+                  const changed = prev && entry.rate !== prev.rate;
+                  return (
+                    <div key={i} className="flex items-center gap-3 text-xs">
+                      <span className="text-[var(--text-muted)] tabular-nums w-32 shrink-0">
+                        {new Date(entry.crawledAt).toLocaleDateString()}
+                      </span>
+                      <span className={clsx(
+                        'font-semibold font-mono',
+                        entry.rate ? (i === 0 ? 'text-green-400' : 'text-[var(--text)]') : 'text-[var(--text-muted)]'
+                      )}>
+                        {entry.rate ?? 'n/a'}
+                      </span>
+                      <span className="text-[var(--text-muted)]">{entry.type}</span>
+                      {changed && (
+                        <span className="text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/30">changed</span>
+                      )}
+                      {i === 0 && <span className="text-[10px] text-indigo-400 font-semibold px-1.5 py-0.5 rounded bg-indigo-900/30">latest</span>}
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-[var(--text-muted)] pt-1">
+                  {program.rateChangeCount === 0
+                    ? 'Rate has been consistent across all crawls — high reliability.'
+                    : program.rateChangeCount! <= 2
+                      ? 'Rate changed occasionally — verify before using.'
+                      : 'Rate changed frequently — low reliability, manual verification recommended.'}
+                </p>
+              </div>
+            </div>
+          )}
 
-      {/* Screenshot */}
-      {program.screenshotAt && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
-            <div className="flex items-center gap-2">
-              <Camera size={14} className="text-[var(--text-muted)]" />
-              <h3 className="text-sm font-semibold text-[var(--text)]">Screenshot</h3>
-              <span className="text-xs text-[var(--text-muted)]">
-                {new Date(program.screenshotAt).toLocaleString()}
-              </span>
+          {program.screenshotAt && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
+                <div className="flex items-center gap-2">
+                  <Camera size={14} className="text-[var(--text-muted)]" />
+                  <h3 className="text-sm font-semibold text-[var(--text)]">Screenshot</h3>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {new Date(program.screenshotAt).toLocaleString()}
+                  </span>
+                </div>
+                <Button variant="ghost" size="sm" loading={screenshotLoading}
+                  icon={<RefreshCw size={12} className={screenshotLoading ? 'animate-spin' : ''} />}
+                  onClick={loadScreenshot}>
+                  {screenshotUrl ? 'Reload' : 'Load'}
+                </Button>
+              </div>
+              {screenshotUrl ? (
+                <div className="p-3">
+                  <img
+                    src={screenshotUrl}
+                    alt={`Screenshot of ${decoded}`}
+                    className="w-full rounded border border-[var(--border)] object-top"
+                    style={{ maxHeight: 480, objectFit: 'cover' }}
+                  />
+                </div>
+              ) : (
+                <p className="px-5 py-4 text-xs text-[var(--text-muted)]">
+                  Click &quot;Load&quot; to view the captured page screenshot.
+                </p>
+              )}
             </div>
-            <Button variant="ghost" size="sm" loading={screenshotLoading}
-              icon={<RefreshCw size={12} className={screenshotLoading ? 'animate-spin' : ''} />}
-              onClick={loadScreenshot}>
-              {screenshotUrl ? 'Reload' : 'Load'}
-            </Button>
-          </div>
-          {screenshotUrl ? (
-            <div className="p-3">
-              <img
-                src={screenshotUrl}
-                alt={`Screenshot of ${decoded}`}
-                className="w-full rounded border border-[var(--border)] object-top"
-                style={{ maxHeight: 480, objectFit: 'cover' }}
-              />
-            </div>
-          ) : (
-            <p className="px-5 py-4 text-xs text-[var(--text-muted)]">
-              Click &quot;Load&quot; to view the captured page screenshot.
-            </p>
           )}
         </div>
-      )}
+      ) : null}
 
-      {/* Content Hash */}
-      {program.contentHash && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-          <SectionHeader icon={<Hash size={14} />} title={t('sections.contentHash')} />
-          <div className="px-5 py-3">
-            <code className="text-xs font-mono text-[var(--text-muted)] break-all">{program.contentHash}</code>
+      {/* Content Hash + User Verifications */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {program.contentHash && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+            <SectionHeader icon={<Hash size={14} />} title={t('sections.contentHash')} />
+            <div className="px-5 py-3">
+              <code className="text-xs font-mono text-[var(--text-muted)] break-all">{program.contentHash}</code>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* User Verifications */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <SectionHeader icon={<Users size={14} />} title={t('sections.userVerifications')} />
-        {verifications.length === 0 ? (
-          <p className="px-5 py-4 text-xs text-[var(--text-muted)]">{t('noVerifications')}</p>
-        ) : (
-          <div className="divide-y divide-[var(--border)]">
-            {verifications.map((v) => {
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+          <SectionHeader icon={<Users size={14} />} title={t('sections.userVerifications')} />
+          {verifications.length === 0 ? (
+            <p className="px-5 py-4 text-xs text-[var(--text-muted)]">{t('noVerifications')}</p>
+          ) : (
+            <div className="divide-y divide-[var(--border)]">
+              {verifications.map((v) => {
               const optionColors: Record<number, string> = {
                 1: 'text-emerald-400',
                 2: 'text-red-400',
@@ -832,6 +841,7 @@ export default function AffiliateDetailPage() {
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* ── Raw HTML Viewer ──────────────────────────────────────────────── */}

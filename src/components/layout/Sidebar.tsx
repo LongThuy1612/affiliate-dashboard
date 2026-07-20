@@ -53,7 +53,7 @@ export default function Sidebar() {
       label: t('proxyManagement'),
       items: canAny(perms, [[S.PROXY, A.MANAGE], [S.PROXY, A.CREATE], [S.PROXY, A.UPDATE], [S.PROXY, A.DELETE]])
         ? [
-            { href: '/proxy',         icon: Network,    label: t('proxyList') },
+            { href: '/proxy',         icon: Network,    label: t('proxyList'), exact: true },
             { href: '/proxy/actions', icon: ShieldCheck, label: t('importAndActions') },
           ]
         : [],
@@ -64,15 +64,15 @@ export default function Sidebar() {
         { href: '/roles', icon: UserCog,  label: t('roles'), subject: S.ROLE, action: A.READ },
         { href: '/users', icon: Users,     label: t('users'), subject: S.USER, action: A.READ },
         ...(perms.includes('all:manage')
-          ? [{ href: '/config/announcements', icon: Bell, label: 'Bảng tin' }]
+          ? [{ href: '/config/announcements', icon: Bell, label: t('announcements') }]
           : []),
       ],
     },
     {
       label: t('other'),
       items: [
-        { href: '/guide',    icon: HelpCircle,    label: 'Hướng dẫn' },
-        { href: '/feedback', icon: MessageSquare, label: t('feedback') },
+        { href: '/guide',    icon: HelpCircle,    label: t('guide') },
+        { href: '/feedback', icon: MessageSquare, label: t('feedback'), exact: true },
         ...(hasPermission(perms, S.FEEDBACK, A.READ)
           ? [{ href: '/feedback/manage', icon: ClipboardList, label: t('feedbackManage') }]
           : []),

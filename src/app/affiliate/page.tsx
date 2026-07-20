@@ -1180,12 +1180,12 @@ export default function AffiliatePage() {
       {/* Filters */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex gap-2 flex-1 min-w-[180px]">
+          <div className="flex gap-2 w-full sm:w-auto">
             <Input placeholder={t('filters.searchPlaceholder')} value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="flex-1" />
-            <Button size="sm" icon={<Search size={13} />} onClick={handleSearch}>{tc('search')}</Button>
+              className="w-full sm:w-[180px] min-w-0" />
+            <Button size="sm" icon={<Search size={13} />} onClick={handleSearch} className="shrink-0">{tc('search')}</Button>
           </div>
           <Select label={t('filters.type')}
             value={params.commissionType ?? ''}

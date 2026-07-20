@@ -27,11 +27,17 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     }
   }, [user, loading, isPublic, pathname, router]);
 
-  // Auth pages (login / register) — render centered without shell
+  // Auth pages (login / register) — render centered without shell.
+  // The body is `overflow-hidden` (dashboard shell owns its own scroll via
+  // <main>), so this wrapper needs its own scroll container or a short
+  // viewport (window resized vertically, mobile keyboard open) clips the
+  // form with no way to reach the rest of it.
   if (isPublic) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] px-4 w-full">
-        {children}
+      <div className="h-full w-full overflow-y-auto bg-[var(--bg)]">
+        <div className="min-h-full flex items-center justify-center px-4 py-8">
+          {children}
+        </div>
       </div>
     );
   }

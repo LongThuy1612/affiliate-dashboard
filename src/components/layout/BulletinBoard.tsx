@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { X, Bell, CheckSquare, Square, Pin } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
-import type { Announcement } from '@/lib/api';
+import { resolveAssetUrl, type Announcement } from '@/lib/api';
 
 function formatDate(iso: string) {
   const [y, m, d] = iso.split('-');
@@ -16,7 +16,12 @@ function PinnedCard({ item }: { item: Announcement }) {
     <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/5 overflow-hidden">
       {item.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.imageUrl} alt={item.title} className="w-full h-auto block" />
+        <img
+          src={resolveAssetUrl(item.imageUrl)}
+          alt={item.title}
+          className="w-full h-auto block"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
       )}
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 mb-1.5">
@@ -37,7 +42,12 @@ function RegularCard({ item }: { item: Announcement }) {
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)]/50 overflow-hidden">
       {item.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.imageUrl} alt={item.title} className="w-full h-auto block" />
+        <img
+          src={resolveAssetUrl(item.imageUrl)}
+          alt={item.title}
+          className="w-full h-auto block"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
       )}
       <div className="px-4 py-3">
         <span className="text-xs text-[var(--text-muted)]">{formatDate(item.date)}</span>
