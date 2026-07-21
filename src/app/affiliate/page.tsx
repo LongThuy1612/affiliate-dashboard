@@ -888,6 +888,7 @@ export default function AffiliatePage() {
   const [loading, setLoading] = useState(true);
   const [deletingDomain, setDeleting] = useState<string | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkMarkingSignup, setBulkMarkingSignup] = useState(false);
   const [batchRecrawling, setBatchRecrawling] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [recrawlModal, setRecrawlModal] = useState<{ domain: string; mode: 'web' | 'llm'; model: string } | null>(null);
@@ -942,7 +943,10 @@ export default function AffiliatePage() {
 
   const fetchData = useCallback(async (p: AffiliateListParams) => {
     setLoading(true);
-    setSelected(new Set());
+    // Selection is intentionally NOT cleared here — it must survive page/filter/sort
+    // changes so a user can tick domains across multiple pages or filter passes before
+    // running one bulk action. Each bulk handler (delete/recrawl/mark signed up) clears
+    // `selected` itself once its action actually completes.
     try {
       const [res, s] = await Promise.all([
         affiliateApi.list(p),
@@ -989,7 +993,31 @@ export default function AffiliatePage() {
     }
     setBulkDeleting(false);
     toast(t('bulkDeleteResult', { ok, fail }), { type: ok > 0 ? 'success' : 'error' });
+    setSelected(new Set());
     fetchData(params);
+  };
+
+  const handleBulkMarkSignedUp = async () => {
+    if (!selected.size) return;
+    const domains = Array.from(selected);
+    setBulkMarkingSignup(true);
+    try {
+      const res = await affiliateApi.markSignedUpBulk(domains);
+      const markedSet = new Set(domains.filter((d) => !res.failed.includes(d)));
+      setItems((prev) => prev.map((i) =>
+        markedSet.has(i.domain) ? { ...i, signedUpByMe: true, anyoneSignedUp: true } : i));
+      toast(
+        res.failed.length > 0
+          ? `Đã đánh dấu ${res.marked}/${domains.length} domain — ${res.failed.length} lỗi.`
+          : `Đã đánh dấu đăng ký cho ${res.marked} domain.`,
+        { type: res.marked > 0 ? 'success' : 'error' },
+      );
+      if (res.marked > 0) setSelected(new Set());
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Failed', { type: 'error' });
+    } finally {
+      setBulkMarkingSignup(false);
+    }
   };
 
   const RECRAWL_MODEL_OPTIONS = [
@@ -1038,6 +1066,7 @@ export default function AffiliatePage() {
         const res = await crawlAffiliateApi.llmImprove(domains, model || undefined);
         toast(t('bulkLlmImproveResult', { improved: res.improved, total: res.total }), { type: 'success' });
       }
+      setSelected(new Set());
       fetchData(params);
     } catch { toast(t('llmImproveFailed'), { type: 'error' }); }
     finally { setBatchRecrawling(false); }
@@ -1259,6 +1288,10 @@ export default function AffiliatePage() {
             onClick={() => setShowExportModal(true)}>
             {tExport('buttonSelected')}
           </Button>
+          <Button variant="secondary" size="sm" loading={bulkMarkingSignup} icon={<BadgeCheck size={12} className="text-indigo-400" />}
+            onClick={handleBulkMarkSignedUp}>
+            Đánh dấu đã đăng ký
+          </Button>
           {isSuperAdmin && (
             <Button variant="danger" size="sm" loading={bulkDeleting} icon={<Trash2 size={12} />} onClick={handleBulkDelete}>
               {tc('deleteSelected')}
@@ -1269,10 +1302,10 @@ export default function AffiliatePage() {
               Re-crawl Selected
             </Button>
           )}
-          {/* <button className="ml-auto text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
+          <button className="ml-auto text-xs text-[var(--text-muted)] hover:text-[var(--text)]"
             onClick={() => setSelected(new Set())}>
             {tc('clearSelection')}
-          </button> */}
+          </button>
         </div>
       )}
 

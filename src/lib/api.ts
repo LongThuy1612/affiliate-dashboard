@@ -472,6 +472,18 @@ export const affiliateApi = {
       { method: 'DELETE' },
     ),
 
+  markSignedUpBulk: (domains: string[]) =>
+    request<{ marked: number; failed: string[] }>('/affiliate/signup-bulk/mark', {
+      method: 'POST',
+      body: JSON.stringify({ domains }),
+    }),
+
+  unmarkSignedUpBulk: (domains: string[]) =>
+    request<{ unmarked: number; failed: string[] }>('/affiliate/signup-bulk/unmark', {
+      method: 'POST',
+      body: JSON.stringify({ domains }),
+    }),
+
   getSubPageScreenshot: async (id: number): Promise<string | null> => {
     const token = getAccessToken();
     const res = await fetch(`${BASE_URL}/affiliate/subpage-screenshot/${id}`, {
