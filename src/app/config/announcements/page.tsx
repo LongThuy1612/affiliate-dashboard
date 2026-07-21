@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
-import { configApi, resolveAssetUrl, type Announcement } from '@/lib/api';
+import { configApi, uploadApi, resolveAssetUrl, type Announcement } from '@/lib/api';
 import { useToast } from '@/components/ui/Toaster';
 import Link from 'next/link';
 import {
@@ -88,12 +88,8 @@ function AnnouncementModal({
     if (!file) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'Upload thất bại');
-      set('imageUrl', json.url as string);
+      const { url } = await uploadApi.image(file);
+      set('imageUrl', url);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Upload thất bại');
     } finally {

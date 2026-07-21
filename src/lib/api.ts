@@ -1044,6 +1044,32 @@ export const configApi = {
     request<{ success: boolean; defaultValue: string | null }>(`/config/${key}`, { method: 'DELETE' }),
 };
 
+// ─── Upload API ───────────────────────────────────────────────────────────────
+// Backed by the crawler backend's real filesystem (services/upload.service.js),
+// not a Next.js API route — Vercel's serverless filesystem is read-only and
+// non-persistent, so writing uploads there always failed once deployed there.
+
+export const uploadApi = {
+  image: async (file: File): Promise<{ url: string }> => {
+    const token = getAccessToken();
+    const form = new FormData();
+    form.append('file', file);
+
+    const res = await fetch(`${BASE_URL}/upload/image`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'ngrok-skip-browser-warning': 'true',
+      },
+      body: form,
+    });
+
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    if (!res.ok) throw new Error(body.error ?? 'Upload thất bại');
+    return body as { url: string };
+  },
+};
+
 // ─── Affiliate Verification API ──────────────────────────────────────────────
 
 export interface AffiliateVerification {
