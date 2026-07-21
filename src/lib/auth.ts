@@ -67,14 +67,27 @@ export interface LoginResponse {
 
 async function authRequest<T>(path: string, options: RequestInit): Promise<T> {
   const res = await fetch(`${AUTH_BASE}${path}`, {
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
       ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
-      ...options.headers 
+      ...options.headers
     },
     ...options,
   });
-  const body = await res.json().catch(() => ({}));
+  // A tunnel (ngrok/etc.) that's down, restarted with a new URL, or showing its
+  // browser-warning interstitial returns HTML with a 2xx/error status, not JSON —
+  // res.json() failing here silently produced {} before, which callers then read
+  // as a valid (but empty) AuthUser/token response instead of an auth failure,
+  // masking the real cause behind a generic "please log in again".
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new ApiError(
+      `Expected JSON from ${AUTH_BASE}${path} but got "${contentType || 'unknown'}" (HTTP ${res.status}) — the API URL may be wrong, unreachable, or pointing at a dead/stale tunnel`,
+      'NON_JSON_RESPONSE',
+      res.status
+    );
+  }
+  const body = await res.json();
   if (!res.ok) throw new ApiError(body.message || body.error || `HTTP ${res.status}`, body.type || 'UNKNOWN', res.status);
   return body as T;
 }
