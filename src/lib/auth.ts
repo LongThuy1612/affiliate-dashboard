@@ -69,7 +69,7 @@ async function authRequest<T>(path: string, options: RequestInit): Promise<T> {
   const res = await fetch(`${AUTH_BASE}${path}`, {
     headers: {
       'Content-Type': 'application/json',
-      ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+      'ngrok-skip-browser-warning': 'true',
       ...options.headers
     },
     ...options,

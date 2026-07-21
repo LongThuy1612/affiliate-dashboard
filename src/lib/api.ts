@@ -48,7 +48,7 @@ async function request<T>(path: string, options?: RequestInit, _isRetry = false)
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
-      ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+      'ngrok-skip-browser-warning': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
@@ -489,7 +489,7 @@ export const affiliateApi = {
     const res = await fetch(`${BASE_URL}/affiliate/subpage-screenshot/${id}`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+        'ngrok-skip-browser-warning': 'true',
       },
     });
     if (!res.ok) return null;
@@ -514,7 +514,7 @@ export const affiliateApi = {
     const res = await fetch(`${BASE_URL}/affiliate/export?${q}`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+        'ngrok-skip-browser-warning': 'true',
       },
     });
 
@@ -550,7 +550,7 @@ export const affiliateApi = {
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+        'ngrok-skip-browser-warning': 'true',
       },
       body: form,
     });
@@ -565,7 +565,7 @@ export const affiliateApi = {
     const res = await fetch(`${BASE_URL}/affiliate/import-template`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+        'ngrok-skip-browser-warning': 'true',
       },
     });
     if (!res.ok) throw new Error('Failed to download template');
@@ -590,7 +590,7 @@ export const affiliateApi = {
     const res = await fetch(`${BASE_URL}/affiliate/screenshot/${encodeURIComponent(domain)}`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(process.env.NEXT_PUBLIC_NGROK_ENABLE === 'true' ? { 'ngrok-skip-browser-warning': 'true' } : {}),
+        'ngrok-skip-browser-warning': 'true',
       },
     });
     if (!res.ok) return null;
