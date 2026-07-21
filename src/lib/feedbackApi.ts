@@ -5,13 +5,13 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3008/api';
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getAccessToken();
   const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
-    ...options,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));

@@ -66,13 +66,19 @@ export interface LoginResponse {
 }
 
 async function authRequest<T>(path: string, options: RequestInit): Promise<T> {
+  // `...options` must come first: it's a shallow spread, so `options.headers`
+  // (e.g. `me()`'s `{ Authorization }`) would otherwise clobber the whole
+  // `headers` object below instead of merging with it — confirmed live: every
+  // GET /auth/me call was silently missing Content-Type AND
+  // ngrok-skip-browser-warning on the wire because `...options` was spread
+  // AFTER `headers`, wiping out the merged object down to just `Authorization`.
   const res = await fetch(`${AUTH_BASE}${path}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
       ...options.headers
     },
-    ...options,
   });
   // A tunnel (ngrok/etc.) that's down, restarted with a new URL, or showing its
   // browser-warning interstitial returns HTML with a 2xx/error status, not JSON —

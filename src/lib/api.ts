@@ -45,14 +45,17 @@ async function refreshAccessToken(): Promise<string> {
 
 async function request<T>(path: string, options?: RequestInit, _isRetry = false): Promise<T> {
   const token = getAccessToken();
+  // `...options` first — see auth.ts's authRequest for why the order matters
+  // (a shallow-spread `headers` after `...options` silently drops everything
+  // built above whenever a caller passes its own `options.headers`).
   const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       'ngrok-skip-browser-warning': 'true',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options?.headers,
     },
-    ...options,
   });
   if (res.status === 401 && !_isRetry && getRefreshToken()) {
     try {
