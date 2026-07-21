@@ -11,6 +11,20 @@ import {
   type LoginRequest,
   type RegisterRequest,
 } from '@/lib/auth';
+import { ApiError } from '@/lib/apiError';
+
+/**
+ * True only when the server itself rejected the token (401/403 from a real
+ * HTTP response) — false for network failures (tunnel down, DNS, CORS-blocked
+ * non-JSON response, timeout). Confirmed live: a backend restart or a flaky
+ * ngrok tunnel can make a single `/auth/me` call fail for reasons that have
+ * nothing to do with the token being invalid; clearing tokens on any thrown
+ * error logged every user out on a transient network hiccup, not just on an
+ * actually-expired session.
+ */
+function isAuthRejection(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403);
+}
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -46,8 +60,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const me = await authApi.me(token);
       setUser(me);
-    } catch {
-      // Token expired — try refresh
+    } catch (err) {
+      if (!isAuthRejection(err)) {
+        // Network/tunnel failure, not an actual "your session is invalid" —
+        // one short retry, since this is typically a backend/tunnel that's
+        // mid-restart and back within a couple seconds. Keep the token
+        // either way so a later successful call can still use it instead of
+        // forcing a re-login for something that wasn't the token's fault.
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const me = await authApi.me(token);
+          setUser(me);
+        } catch {
+          setUser(null);
+        }
+        setLoading(false);
+        return;
+      }
+      // Real 401/403 — token is genuinely invalid/expired, try refresh
       const refresh = getRefreshToken();
       if (refresh) {
         try {
@@ -55,8 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setTokens(accessToken, refreshToken);
           const me = await authApi.me(accessToken);
           setUser(me);
-        } catch {
-          clearTokens();
+        } catch (refreshErr) {
+          if (isAuthRejection(refreshErr)) {
+            clearTokens();
+          }
           setUser(null);
         }
       } else {
