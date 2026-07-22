@@ -104,19 +104,10 @@ function PieCard({
 type ChatMsg = { role: 'user' | 'ai'; text: string };
 
 function AffiliateAnalyst() {
-  const [models, setModels]   = useState<string[]>([]);
-  const [model, setModel]     = useState('');
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<ChatMsg[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    affiliateApi.ollamaModels().then((ms) => {
-      setModels(ms);
-      if (ms.length > 0) setModel(ms[0]);
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     // Skip on mount (history starts as []) — scrollIntoView's default
@@ -137,7 +128,7 @@ function AffiliateAnalyst() {
     setQuestion('');
     setLoading(true);
     try {
-      const res = await affiliateApi.aiAnalyst(q, model || undefined);
+      const res = await affiliateApi.aiAnalyst(q);
       setHistory((h) => [...h, { role: 'ai', text: res.answer }]);
     } catch (e: unknown) {
       setHistory((h) => [...h, { role: 'ai', text: `Error: ${e instanceof Error ? e.message : 'Failed'}` }]);
@@ -155,15 +146,6 @@ function AffiliateAnalyst() {
           <span className="text-sm font-semibold text-[var(--text)]">AI Analyst</span>
           <span className="text-[11px] text-[var(--text-muted)]">— ask questions about your affiliate data</span>
         </div>
-        {models.length > 0 && (
-          <select
-            className="rounded border bg-[var(--surface)] border-[var(--border)] px-2 py-1 text-xs text-[var(--text)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-          >
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        )}
       </div>
 
       {/* Chat history */}
