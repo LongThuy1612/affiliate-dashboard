@@ -280,6 +280,7 @@
       "ruleCommissionType": "• Commission Type phải là 1 trong: one_time, recurring, unknown.",
       "ruleCookieDays": "• Cookie Days phải là số nguyên (từ 0 trở lên).",
       "ruleRowCap": "• Tối đa 50,000 dòng mỗi file.",
+      "ruleTextFormat": "• Bôi đen toàn bộ các cột dữ liệu → Home → Number Format → chọn \"Text\" trước khi nhập, để tránh Excel tự đổi giá trị bạn gõ (vd: gõ \"50%\" có thể bị lưu thành 0.5).",
       "dropHint": "Kéo thả file vào đây hoặc bấm để chọn",
       "dropSubhint": ".xlsx / .xls — tối đa 50,000 dòng",
       "changeFileHint": "Bấm để chọn file khác",

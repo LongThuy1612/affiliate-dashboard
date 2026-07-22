@@ -440,6 +440,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
               <p>{t('ruleCommissionType')}</p>
               <p>{t('ruleCookieDays')}</p>
               <p>{t('ruleRowCap')}</p>
+              <p className="text-red-400 font-semibold">{t('ruleTextFormat')}</p>
             </div>
           )}
         </div>
