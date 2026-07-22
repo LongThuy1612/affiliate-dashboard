@@ -119,7 +119,15 @@ function AffiliateAnalyst() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Skip on mount (history starts as []) — scrollIntoView's default
+    // `block: 'end'` walks up to the nearest scrollable ANCESTOR, which is
+    // this page's own <main> (not just the chat's own overflow-y-auto div),
+    // so it silently scrolled the whole /affiliate/stats page to the bottom
+    // on every load, before the user ever sent a message. `block: 'nearest'`
+    // keeps the scroll contained to the chat's own scroll container once
+    // there's an actual reason to scroll (a new message).
+    if (history.length === 0) return;
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [history]);
 
   const ask = async () => {
