@@ -34,10 +34,21 @@ function PieCard({
     </div>
   );
 
+  // Legend renders as an absolutely-positioned overlay inside ResponsiveContainer,
+  // not as a sibling that pushes the container taller — with a fixed 280px height,
+  // a chart with many slices (e.g. productCategory's 13 categories, wrapping to
+  // ~5 legend rows) had its legend overlap and visually cover the bottom half of
+  // the donut itself. 280px was tuned for the ~2-row legend case (4-6
+  // categories); only grow past it once there are enough categories to need
+  // more rows than that already accounts for — shrinking it for small charts
+  // (as an earlier version of this did) squeezed the donut itself instead.
+  const legendRows = Math.ceil(data.length / 3);
+  const chartHeight = 280 + Math.max(0, legendRows - 2) * 24;
+
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow">
       <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider">{title}</h2>
-      <div className="h-[280px] w-full">
+      <div className="w-full" style={{ height: chartHeight }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
