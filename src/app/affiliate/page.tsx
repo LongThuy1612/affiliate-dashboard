@@ -1020,6 +1020,10 @@ export default function AffiliatePage() {
     }
   };
 
+  // 'ladytools' is not a real model name passed to llmImprove — it's a sentinel
+  // handled separately in handleRecrawl/handleBatchRecrawl, which call the
+  // dedicated ladyToolsImprove endpoint (a real Gemini web chat that can
+  // search Google, unlike the API-based Gemini models below).
   const RECRAWL_MODEL_OPTIONS = [
     { value: '', label: 'Auto (tier-based)', group: 'ollama' },
     { value: 'deepseek-coder', label: 'deepseek-coder  —  score < 40 (Low)', group: 'ollama' },
@@ -1029,6 +1033,7 @@ export default function AffiliatePage() {
     { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash  —  Google (Free, Fast)', group: 'gemini' },
     { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash  —  Google (Free)', group: 'gemini' },
     { value: 'gemini-1.5-flash-8b', label: 'gemini-1.5-flash-8b  —  Google (Free, Lite)', group: 'gemini' },
+    { value: 'ladytools', label: 'Lady Tools  —  Gemini web chat (Highest quality, slowest)', group: 'ladytools' },
   ];
 
   const handleRecrawl = async () => {
@@ -1040,6 +1045,12 @@ export default function AffiliatePage() {
       if (mode === 'web') {
         await crawlAffiliateApi.crawlDomains({ domains: [domain], force: true });
         toast(`Re-crawl queued for ${domain}`, { type: 'success' });
+      } else if (model === 'ladytools') {
+        const res = await crawlAffiliateApi.ladyToolsImprove([domain]);
+        toast(
+          res.improved > 0 ? t('llmImproveSuccess', { domain }) : t('llmImproveNoChange', { domain }),
+          { type: res.improved > 0 ? 'success' : 'info' },
+        );
       } else {
         const res = await crawlAffiliateApi.llmImprove([domain], model || undefined);
         toast(
@@ -1062,6 +1073,9 @@ export default function AffiliatePage() {
       if (mode === 'web') {
         await crawlAffiliateApi.crawlDomains({ domains, force: true });
         toast(`Re-crawl queued for ${domains.length} domain${domains.length > 1 ? 's' : ''}`, { type: 'success' });
+      } else if (model === 'ladytools') {
+        const res = await crawlAffiliateApi.ladyToolsImprove(domains);
+        toast(t('bulkLlmImproveResult', { improved: res.improved, total: res.total }), { type: 'success' });
       } else {
         const res = await crawlAffiliateApi.llmImprove(domains, model || undefined);
         toast(t('bulkLlmImproveResult', { improved: res.improved, total: res.total }), { type: 'success' });
@@ -1662,6 +1676,20 @@ export default function AffiliatePage() {
                     <span className="text-[var(--text)]">{label}</span>
                   </label>
                 ))}
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] px-1 pt-2 mb-1">Lady Tools</p>
+                {RECRAWL_MODEL_OPTIONS.filter(o => o.group === 'ladytools').map(({ value, label }) => (
+                  <label key={value} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+                    <input
+                      type="radio"
+                      name="recrawl-model"
+                      value={value}
+                      checked={recrawlModal.model === value}
+                      onChange={() => setRecrawlModal(m => m ? { ...m, model: value } : m)}
+                      className="accent-[var(--accent)]"
+                    />
+                    <span className="text-[var(--text)]">{label}</span>
+                  </label>
+                ))}
               </div>
             )}
             <div className="flex justify-end gap-2">
@@ -1724,6 +1752,20 @@ export default function AffiliatePage() {
                       className="accent-[var(--accent)]"
                     />
                     <span className={value === '' ? 'text-[var(--text-muted)]' : 'text-[var(--text)]'}>{label}</span>
+                  </label>
+                ))}
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] px-1 pt-2 mb-1">Lady Tools (max 50 domains)</p>
+                {RECRAWL_MODEL_OPTIONS.filter(o => o.group === 'ladytools').map(({ value, label }) => (
+                  <label key={value} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--surface-2)]">
+                    <input
+                      type="radio"
+                      name="batch-recrawl-model"
+                      value={value}
+                      checked={batchRecrawlModal.model === value}
+                      onChange={() => setBatchRecrawlModal(m => m ? { ...m, model: value } : m)}
+                      className="accent-[var(--accent)]"
+                    />
+                    <span className="text-[var(--text)]">{label}</span>
                   </label>
                 ))}
               </div>
