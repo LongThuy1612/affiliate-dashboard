@@ -179,11 +179,11 @@
       "clearRange": "Clear",
       "applyRange": "Apply",
       "cancelRange": "Cancel",
-      "signup": "Signup",
-      "signedUp": "Signed up (me)",
-      "notSignedUp": "Not signed up (me)",
-      "anyoneSignedUp": "Someone has signed up",
-      "noneSignedUp": "No one has signed up",
+      "signup": "Joined",
+      "signedUp": "Joined (me)",
+      "notSignedUp": "Not joined (me)",
+      "anyoneSignedUp": "Someone has joined",
+      "noneSignedUp": "No one has joined",
       "signupFilterCount": "{count} selected"
     },
     "table": {
@@ -198,7 +198,7 @@
       "fetchTier": "Fetch Tier",
       "updated": "Updated At",
       "verify": "Verify",
-      "signedUp": "Signed Up"
+      "signedUp": "Joined"
     },
     "badge": {
       "oneTime": "One-time",
@@ -217,7 +217,7 @@
       "veryLow": "Very Low",
       "newHint": "First crawl (≤8h)",
       "recrawlHint": "Re-crawled (≤8h)",
-      "anyoneSignedUpHint": "Someone has signed up"
+      "anyoneSignedUpHint": "Someone has joined"
     },
     "deleteConfirm": "Delete \"{domain}\"?",
     "deleteSuccess": "Deleted: {domain}",
@@ -244,16 +244,16 @@
       "title": "Verify: {domain}"
     },
     "signup": {
-      "title": "Signup status",
-      "markShort": "Mark signed up",
-      "signedUpShort": "Signed up",
-      "notSignedUpYet": "You haven't marked this program as signed up yet.",
-      "youSignedUp": "You marked this program as signed up.",
-      "markButton": "Mark as signed up",
+      "title": "Joined status",
+      "markShort": "Mark joined",
+      "signedUpShort": "Joined",
+      "notSignedUpYet": "You haven't marked this program as joined yet.",
+      "youSignedUp": "You marked this program as joined.",
+      "markButton": "Mark as joined",
       "unmarkButton": "Unmark",
       "close": "Close",
-      "marked": "Marked as signed up",
-      "unmarked": "Signup marker removed",
+      "marked": "Marked as joined",
+      "unmarked": "Joined marker removed",
       "failed": "Action failed"
     },
     "export": {

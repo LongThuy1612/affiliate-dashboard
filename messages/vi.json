@@ -179,11 +179,11 @@
       "clearRange": "Xóa",
       "applyRange": "Áp dụng",
       "cancelRange": "Hủy",
-      "signup": "Đăng ký",
-      "signedUp": "Đã đăng ký (tôi)",
-      "notSignedUp": "Chưa đăng ký (tôi)",
-      "anyoneSignedUp": "Đã có người đăng ký",
-      "noneSignedUp": "Chưa có người đăng ký",
+      "signup": "Tham gia",
+      "signedUp": "Đã tham gia (tôi)",
+      "notSignedUp": "Chưa tham gia (tôi)",
+      "anyoneSignedUp": "Đã có người tham gia",
+      "noneSignedUp": "Chưa có người tham gia",
       "signupFilterCount": "{count} đã chọn"
     },
     "table": {
@@ -198,7 +198,7 @@
       "fetchTier": "Tầng Fetch",
       "updated": "Cập nhật lúc",
       "verify": "Xác nhận",
-      "signedUp": "Đã đăng ký"
+      "signedUp": "Tham gia"
     },
     "badge": {
       "oneTime": "Một lần",
@@ -217,7 +217,7 @@
       "veryLow": "Rất thấp",
       "newHint": "Lần cào đầu (≤8h)",
       "recrawlHint": "Cào lại (≤8h)",
-      "anyoneSignedUpHint": "Đã có người đăng ký"
+      "anyoneSignedUpHint": "Đã có người tham gia"
     },
     "deleteConfirm": "Xóa \"{domain}\"?",
     "deleteSuccess": "Đã xóa: {domain}",
@@ -244,16 +244,16 @@
       "title": "Xác nhận: {domain}"
     },
     "signup": {
-      "title": "Trạng thái đăng ký",
+      "title": "Trạng thái tham gia",
       "markShort": "Đánh dấu",
-      "signedUpShort": "Đã đăng ký",
-      "notSignedUpYet": "Bạn chưa đánh dấu chương trình này là đã đăng ký.",
-      "youSignedUp": "Bạn đã đánh dấu chương trình này là đã đăng ký.",
-      "markButton": "Đánh dấu đã đăng ký",
+      "signedUpShort": "Đã tham gia",
+      "notSignedUpYet": "Bạn chưa đánh dấu chương trình này là đã tham gia.",
+      "youSignedUp": "Bạn đã đánh dấu chương trình này là đã tham gia.",
+      "markButton": "Đánh dấu đã tham gia",
       "unmarkButton": "Bỏ đánh dấu",
       "close": "Đóng",
-      "marked": "Đã đánh dấu đăng ký",
-      "unmarked": "Đã bỏ đánh dấu đăng ký",
+      "marked": "Đã đánh dấu tham gia",
+      "unmarked": "Đã bỏ đánh dấu tham gia",
       "failed": "Thao tác thất bại"
     },
     "export": {
