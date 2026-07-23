@@ -851,30 +851,18 @@ function TrafficCell({ traffic }: { traffic: DomainTraffic | null | undefined })
             : <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-300"><TrendingDown size={10} />{growth.toFixed(1)}%</span>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        {traffic.rank != null && (
-          <span className="text-[10px] text-[var(--text-muted)]">Rank #{traffic.rank.toLocaleString()}</span>
-        )}
-        {traffic.timeOnSite != null && (
-          <span className="text-[10px] text-[var(--text-muted)]">⏱ {formatSeconds(traffic.timeOnSite)}</span>
-        )}
-      </div>
+      {traffic.rank != null && (
+        <span className="text-[10px] text-[var(--text-muted)]">Rank #{traffic.rank.toLocaleString()}</span>
+      )}
     </div>
   );
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const cfg =
-    score >= 85 ? { bg: 'bg-emerald-500/20', text: 'text-emerald-300', ring: 'ring-emerald-500/40' } :
-      score >= 70 ? { bg: 'bg-green-500/20', text: 'text-green-300', ring: 'ring-green-500/30' } :
-        score >= 50 ? { bg: 'bg-amber-500/20', text: 'text-amber-300', ring: 'ring-amber-500/30' } :
-          score >= 30 ? { bg: 'bg-orange-500/20', text: 'text-orange-300', ring: 'ring-orange-500/30' } :
-            { bg: 'bg-red-500/20', text: 'text-red-300', ring: 'ring-red-500/30' };
-  return (
-    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ring-1', cfg.bg, cfg.text, cfg.ring)}>
-      {score}
-    </span>
-  );
+function TimeOnSiteCell({ traffic }: { traffic: DomainTraffic | null | undefined }) {
+  if (!traffic || traffic.lastFetchStatus !== 'success' || traffic.timeOnSite == null) {
+    return <span className="text-xs text-[var(--text-muted)]">—</span>;
+  }
+  return <span className="font-mono text-xs text-[var(--text)]">{formatSeconds(traffic.timeOnSite)}</span>;
 }
 
 export default function AffiliatePage() {
@@ -1346,7 +1334,7 @@ export default function AffiliatePage() {
                       someSelected ? <Minus size={14} /> : <Square size={14} />}
                   </button>
                 </th>
-                {[t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), 'Traffic', t('table.score'), t('table.signedUp'), t('table.verify'), ''].map((h) => (
+                {[t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), 'Traffic', 'Time on Site', t('table.signedUp'), t('table.verify'), ''].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -1399,7 +1387,7 @@ export default function AffiliatePage() {
                       </td>
                       <td className="px-4 py-3"><CookieCell days={item.cookieDays} /></td>
                       <td className="px-4 py-3"><TrafficCell traffic={item.domainTraffic} /></td>
-                      <td className="px-4 py-3"><ScoreBadge score={item.affiliateScore} /></td>
+                      <td className="px-4 py-3"><TimeOnSiteCell traffic={item.domainTraffic} /></td>
                       <td className="px-4 py-3">
                         <SignupCell signedUp={!!item.signedUpByMe} onClick={() => setSignupModal(item.domain)} />
                       </td>
