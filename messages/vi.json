@@ -2,6 +2,7 @@
   "nav": {
     "affiliatePrograms": "Chương trình Affiliate",
     "allPrograms": "Tất cả chương trình",
+    "devView": "Xem theo Dev",
     "llmAudit": "Kiểm toán LLM",
     "actionsAndCrawl": "Hành động / Crawl",
     "proxyManagement": "Quản lý Proxy",
@@ -545,6 +546,7 @@
       "done": "Hoàn thành — {improved} / {total} đã cải thiện",
       "logImproved": "đã cải thiện",
       "logNoChange": "không đổi",
+      "logDeleted": "đã xoá (điểm 0)",
       "logError": "lỗi",
       "ladyToolsOption": "Lady Tools (Gemini)",
       "ladyToolsHint": "Lady Tools mở 1 tab Chrome thật cho mỗi domain (~20s/domain) và dùng lại nội dung sub-page tốt nhất đã lưu thay vì crawl lại. Domain vẫn còn điểm 0 sẽ bị xóa."

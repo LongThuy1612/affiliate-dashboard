@@ -3,8 +3,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
-  Network, ShieldCheck, BarChart2, Wrench, FlaskConical,
+  Network, ShieldCheck, BarChart2, Wrench, FlaskConical, Code2,
   Menu, X, BookOpen, Settings, UserCog, Users, MessageSquare, ClipboardList, Bell, HelpCircle,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { useState } from 'react';
 import clsx from 'clsx';
@@ -32,6 +33,19 @@ export default function Sidebar() {
   const pathname = usePathname();
   const t = useTranslations('nav');
   const [open, setOpen] = useState(false);
+  // Desktop collapse — unlike `open` (mobile drawer, always starts closed),
+  // this persists across reloads/navigation via localStorage so a user who
+  // collapses the sidebar (e.g. to reclaim width in fullscreen, which has no
+  // OS chrome to fall back on) doesn't have to re-collapse it on every page.
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('sidebarCollapsed') === '1');
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('sidebarCollapsed', next ? '1' : '0');
+      return next;
+    });
+  };
   const { user } = useAuth();
   const { llmEnabled } = useConfig();
   const perms = user?.permissions ?? [];
@@ -41,6 +55,7 @@ export default function Sidebar() {
       label: t('affiliatePrograms'),
       items: [
         { href: '/affiliate',           icon: BarChart2,    label: t('allPrograms'), subject: S.AFFILIATE, action: A.READ, exact: true },
+        { href: '/affiliate/dev',       icon: Code2,        label: t('devView'), subject: S.AFFILIATE, action: A.READ },
         ...(llmEnabled
           ? [{ href: '/affiliate/llm-audit', icon: FlaskConical, label: t('llmAudit'), subject: S.AFFILIATE, action: A.READ }]
           : []),
@@ -103,6 +118,13 @@ export default function Sidebar() {
       <div className="flex items-center gap-2 px-4 py-4 border-b border-[var(--border)]">
         <span className="w-7 h-7 rounded-md bg-[var(--accent)] flex items-center justify-center text-white font-bold text-sm">A</span>
         <span className="font-semibold text-[var(--text)]">AffiliateCrawl</span>
+        <button
+          className="ml-auto hidden lg:block text-[var(--text-muted)] hover:text-[var(--text)]"
+          onClick={toggleCollapsed}
+          title="Collapse sidebar"
+        >
+          <PanelLeftClose size={18} />
+        </button>
         <button className="ml-auto lg:hidden" onClick={() => setOpen(false)}>
           <X size={18} className="text-[var(--text-muted)]" />
         </button>
@@ -157,7 +179,20 @@ export default function Sidebar() {
         <Menu size={18} className="text-[var(--text)]" />
       </button>
 
-      <div className="hidden lg:flex">{content}</div>
+      {/* Floating re-open button — always on top (z-50) regardless of fullscreen
+          or any other page chrome, since a collapsed sidebar has no other way
+          to reopen itself once its own toggle button is gone with it. */}
+      {collapsed && (
+        <button
+          className="hidden lg:block fixed top-4 left-3 z-50 p-2 rounded-md bg-[var(--surface)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] shadow-lg"
+          onClick={toggleCollapsed}
+          title="Expand sidebar"
+        >
+          <PanelLeftOpen size={18} />
+        </button>
+      )}
+
+      {!collapsed && <div className="hidden lg:flex">{content}</div>}
 
       {open && (
         <div className="lg:hidden fixed inset-0 z-40 flex">

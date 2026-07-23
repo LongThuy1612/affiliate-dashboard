@@ -1,7 +1,7 @@
-﻿'use client';
+'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, DomainTraffic, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError, IMPORT_COLUMNS, ImportResult } from '@/lib/api';
+import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError, IMPORT_COLUMNS, ImportResult } from '@/lib/api';
 import { StatCard } from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -12,9 +12,11 @@ import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
 import { canAny } from '@/lib/permissions';
 import { PermissionSubject as S, PermissionAction as A } from '@/constants/permissions';
-import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet } from 'lucide-react';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, Layers, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet } from 'lucide-react';
+import { AffiliateSubPage } from '@/lib/api';
 import Link from 'next/link';
 import clsx from 'clsx';
+import { isRecentlyUpdated } from '@/lib/freshness';
 
 // ─── Verification components ─────────────────────────────────────────────────
 
@@ -794,72 +796,57 @@ function CookieCell({ days }: { days: number | null }) {
   return <span className={clsx('font-mono text-xs', cls)}>{days}d</span>;
 }
 
-// ─── Google research link (Program Name column) ──────────────────────────────
+// ─── Fetch-tier cell ─────────────────────────────────────────────────────────
 
-function googleSearchUrl(domain: string, programName: string | null): string {
-  const query = programName ? `${programName} affiliate program` : `${domain} affiliate program`;
-  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-}
+const FETCH_TIER_META: Record<number, { label: string; icon: string; bg: string; text: string }> = {
+  1: { label: 'Axios', icon: '⚡', bg: 'bg-blue-900/30', text: 'text-blue-300' },
+  2: { label: 'Playwright', icon: '🎭', bg: 'bg-amber-900/30', text: 'text-amber-300' },
+  3: { label: 'FlareSolverr', icon: '🔥', bg: 'bg-orange-900/30', text: 'text-orange-300' },
+};
 
-function GoogleResearchLink({ domain, programName }: { domain: string; programName: string | null }) {
+function FetchTierCell({ tier, error }: { tier: number | null; error: string | null }) {
+  if (tier == null) {
+    const title = error ? `All tiers failed — ${error}` : 'No fetch attempt recorded';
+    return (
+      <span
+        title={title}
+        className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 font-semibold cursor-default"
+      >
+        ✗ {error ?? '—'}
+      </span>
+    );
+  }
+  const meta = FETCH_TIER_META[tier] ?? { label: `T${tier}`, icon: '?', bg: 'bg-[var(--surface-2)]', text: 'text-[var(--text-muted)]' };
+  const tooltip = error
+    ? `T${tier} ${meta.label} succeeded (previous tiers failed with: ${error})`
+    : `T${tier} ${meta.label} — fetched directly`;
   return (
-    <a
-      href={googleSearchUrl(domain, programName)}
-      target="_blank"
-      rel="noopener noreferrer"
-      title="Research on Google"
-      onClick={(e) => e.stopPropagation()}
-      className="shrink-0 text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+    <span
+      title={tooltip}
+      className={clsx('inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-semibold cursor-default', meta.bg, meta.text)}
     >
-      <Search size={11} />
-    </a>
+      {meta.icon} T{tier}
+    </span>
   );
 }
 
-// ─── Traffic cell (SimilarWeb, joined via GET /affiliate) ────────────────────
+const SOURCE_COLORS: Record<string, string> = {
+  web_crawl: 'bg-blue-900/40 text-blue-300',
+  llm_extract: 'bg-purple-900/40 text-purple-300',
+  partnerstack_marketplace: 'bg-emerald-900/40 text-emerald-300',
+};
 
-function formatVisits(raw: string | null): string {
-  if (!raw) return '—';
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return '—';
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function formatSeconds(sec: number | null): string {
-  if (sec == null) return '—';
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function TrafficCell({ traffic }: { traffic: DomainTraffic | null | undefined }) {
-  if (!traffic || traffic.lastFetchStatus !== 'success') {
-    return <span className="text-xs text-[var(--text-muted)]">—</span>;
+function SourceBadge({ source, llmModel }: { source: string | null; llmModel?: string | null }) {
+  if (!source) return <span className="text-[var(--text-muted)] text-xs">—</span>;
+  const cls = SOURCE_COLORS[source] ?? 'bg-[var(--surface-2)] text-[var(--text-muted)]';
+  let short = source.replace('_marketplace', '').replace(/_/g, ' ');
+  if (source === 'llm_extract' && llmModel) {
+    short += ` - ${llmModel}`;
   }
-  const growth = traffic.last1MonthGrowth;
   return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5">
-        <span className="font-mono text-xs text-[var(--text)]">{formatVisits(traffic.monthlyVisits)}</span>
-        <span className="text-[10px] text-[var(--text-muted)]">/mo</span>
-        {growth != null && (
-          growth >= 0
-            ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-300"><TrendingUp size={10} />{growth.toFixed(1)}%</span>
-            : <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-300"><TrendingDown size={10} />{growth.toFixed(1)}%</span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        {traffic.rank != null && (
-          <span className="text-[10px] text-[var(--text-muted)]">Rank #{traffic.rank.toLocaleString()}</span>
-        )}
-        {traffic.timeOnSite != null && (
-          <span className="text-[10px] text-[var(--text-muted)]">⏱ {formatSeconds(traffic.timeOnSite)}</span>
-        )}
-      </div>
-    </div>
+    <span className={clsx('inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium', cls)}>
+      {short}
+    </span>
   );
 }
 
@@ -911,6 +898,9 @@ export default function AffiliatePage() {
   const [verifications, setVerifications] = useState<Map<string, AffiliateVerification>>(new Map());
   const [verifyModal, setVerifyModal] = useState<string | null>(null);
   const [signupModal, setSignupModal] = useState<string | null>(null);
+  const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
+  const [subPageCache, setSubPageCache] = useState<Map<string, AffiliateSubPage[]>>(new Map());
+  const [subPageLoading, setSubPageLoading] = useState<Set<string>>(new Set());
   const [params, setParams] = useState<AffiliateListParams>({ page: 1, limit: 50, orderBy: 'crawledAt', order: 'desc' });
   const [search, setSearch] = useState('');
   const [commissionFilter, setCommissionFilter] = useState('');
@@ -1346,20 +1336,40 @@ export default function AffiliatePage() {
                       someSelected ? <Minus size={14} /> : <Square size={14} />}
                   </button>
                 </th>
-                {[t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), 'Traffic', t('table.score'), t('table.signedUp'), t('table.verify'), ''].map((h) => (
+                {[t('table.id'), t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), t('table.score'), t('table.updated'), t('table.source'), t('table.fetchTier'), t('table.verify'), t('table.signedUp'), ''].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
+                <tr><td colSpan={14} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={11} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
+                <tr><td colSpan={14} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
               ) : (
-                filteredItems.map((item) => {
+                filteredItems.flatMap((item, idx) => {
                   const isSelected = selected.has(item.domain);
-                  return (
+                  const hasSubPages = (item.subProgramCount ?? 0) > 0;
+                  const isExpanded = expandedDomains.has(item.domain);
+                  const isLoadingSub = subPageLoading.has(item.domain);
+                  const cachedSubs = subPageCache.get(item.domain) ?? [];
+
+                  const toggleExpand = async () => {
+                    const next = new Set(expandedDomains);
+                    if (isExpanded) { next.delete(item.domain); setExpandedDomains(next); return; }
+                    next.add(item.domain);
+                    setExpandedDomains(next);
+                    if (!subPageCache.has(item.domain)) {
+                      setSubPageLoading(prev => new Set(prev).add(item.domain));
+                      try {
+                        const tree = await affiliateApi.getTree(item.domain);
+                        setSubPageCache(prev => new Map(prev).set(item.domain, tree.subPages));
+                      } catch { /* ignore */ }
+                      finally { setSubPageLoading(prev => { const s = new Set(prev); s.delete(item.domain); return s; }); }
+                    }
+                  };
+
+                  const mainRow = (
                     <tr key={item.domain}
                       className={clsx(
                         'group border-b border-[var(--border)] transition-colors',
@@ -1372,18 +1382,42 @@ export default function AffiliatePage() {
                           {isSelected ? <CheckSquare size={14} className="text-[var(--accent)]" /> : <Square size={14} />}
                         </button>
                       </td>
+                      <td className="px-4 py-3 text-xs text-[var(--text-muted)] tabular-nums w-12">
+                        {(Math.max(1, params.page ?? 1) - 1) * (params.limit ?? 50) + idx + 1}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs max-w-[180px]">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <Link href={`/affiliate/${encodeURIComponent(item.domain)}`}
+                          {hasSubPages && (
+                            <button
+                              onClick={toggleExpand}
+                              title={`${item.subProgramCount} sub-programs`}
+                              className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold px-1 py-px rounded bg-indigo-900/40 text-indigo-300 hover:bg-indigo-800/50"
+                            >
+                              <Layers size={9} />
+                              {item.subProgramCount}
+                              <ChevronRight size={9} className={clsx('transition-transform', isExpanded && 'rotate-90')} />
+                            </button>
+                          )}
+                          <Link href={`/affiliate/dev/${encodeURIComponent(item.domain)}`}
                             className="text-indigo-400 hover:underline truncate">
                             {item.domain}
                           </Link>
-                          <GoogleResearchLink domain={item.domain} programName={item.programName} />
                           {item.signupUrlVerified && <BadgeCheck size={12} className="text-emerald-400 shrink-0" />}
                           {item.llmEnriched && <Sparkles size={11} className="text-purple-400 shrink-0" />}
+                          {item.crawlCount <= 1 && isRecentlyUpdated(item.crawledAt) && (
+                            <span className="shrink-0 text-[10px] font-bold px-1 py-px rounded bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40">
+                              {t('newBadge')}
+                            </span>
+                          )}
+                          {item.crawlCount > 1 && isRecentlyUpdated(item.updatedAt) && (
+                            <span title={t('recrawledAt', { time: new Date(item.updatedAt).toLocaleString() })}
+                              className="shrink-0 cursor-default">
+                              <RotateCw size={11} className="text-sky-400" />
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-[var(--text)] max-w-[160px] truncate text-xs">
+                      <td className="px-4 py-3 text-[var(--text)] max-w-[150px] truncate text-xs">
                         {item.programName ?? <span className="text-[var(--text-muted)]">—</span>}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs max-w-[120px] truncate" title={item.commissionRate || undefined}>
@@ -1398,10 +1432,23 @@ export default function AffiliatePage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3"><CookieCell days={item.cookieDays} /></td>
-                      <td className="px-4 py-3"><TrafficCell traffic={item.domainTraffic} /></td>
-                      <td className="px-4 py-3"><ScoreBadge score={item.affiliateScore} /></td>
                       <td className="px-4 py-3">
-                        <SignupCell signedUp={!!item.signedUpByMe} onClick={() => setSignupModal(item.domain)} />
+                        <div className="flex items-center gap-1.5">
+                          <ScoreBadge score={item.affiliateScore} />
+                          {item.previousScore != null && item.previousScore !== item.affiliateScore && isRecentlyUpdated(item.updatedAt) && (() => {
+                            const delta = item.affiliateScore - item.previousScore!;
+                            return delta > 0
+                              ? <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-300"><TrendingUp size={10} />+{delta}</span>
+                              : <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-300"><TrendingDown size={10} />{delta}</span>;
+                          })()}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[var(--text-muted)] whitespace-nowrap tabular-nums">
+                        {new Date(item.updatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
+                      </td>
+                      <td className="px-4 py-3"><SourceBadge source={item.dataSource} llmModel={item.llmModel} /></td>
+                      <td className="px-4 py-3">
+                        <FetchTierCell tier={item.fetchTierReached} error={item.lastFetchError} />
                       </td>
                       <td className="px-4 py-3">
                         <VerifyCell
@@ -1409,6 +1456,9 @@ export default function AffiliatePage() {
                           verification={verifications.get(item.domain)}
                           onClick={() => setVerifyModal(item.domain)}
                         />
+                      </td>
+                      <td className="px-4 py-3">
+                        <SignupCell signedUp={!!item.signedUpByMe} onClick={() => setSignupModal(item.domain)} />
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
@@ -1434,6 +1484,62 @@ export default function AffiliatePage() {
                       </td>
                     </tr>
                   );
+
+                  const subRows = isExpanded ? (
+                    isLoadingSub ? (
+                      <tr key={`${item.domain}__loading`} className="bg-[var(--surface-2)]/40">
+                        <td colSpan={14} className="px-10 py-2 text-xs text-[var(--text-muted)] animate-pulse">
+                          Loading sub-programs…
+                        </td>
+                      </tr>
+                    ) : cachedSubs.map(sp => (
+                      <tr key={`${item.domain}__${sp.id}`}
+                        className="border-b border-[var(--border)]/50 bg-[var(--surface-2)]/30 hover:bg-[var(--surface-2)]/60">
+                        <td colSpan={2} />
+                        <td className="pl-8 pr-2 py-2 font-mono text-[11px] max-w-[200px]">
+                          <a href={sp.pageUrl} target="_blank" rel="noopener noreferrer"
+                            className="text-indigo-300/80 hover:text-indigo-300 hover:underline flex items-center gap-1 truncate"
+                            title={sp.pageUrl}>
+                            <ChevronRight size={10} className="shrink-0 text-[var(--text-muted)]" />
+                            {sp.pagePath}
+                            <ExternalLink size={9} className="shrink-0 opacity-40" />
+                          </a>
+                        </td>
+                        <td className="px-2 py-2 text-[11px] text-[var(--text-muted)] max-w-[120px] truncate">
+                          {sp.programName ?? '—'}
+                        </td>
+                        <td className="px-2 py-2 font-mono text-[11px]">
+                          {sp.commissionRate
+                            ? <span className="text-green-400">{sp.commissionRate}</span>
+                            : <span className="text-[var(--text-muted)]">—</span>}
+                        </td>
+                        <td className="px-2 py-2">
+                          <Badge variant={typeVariant(sp.commissionType as CommissionType)}>
+                            {sp.commissionType === 'one_time' ? t('badge.oneTime') :
+                              sp.commissionType === 'recurring' ? t('badge.recurring') : t('badge.unknown')}
+                          </Badge>
+                        </td>
+                        <td className="px-2 py-2"><CookieCell days={sp.cookieDays} /></td>
+                        <td className="px-2 py-2">
+                          <ScoreBadge score={sp.affiliateScore} />
+                        </td>
+                        <td colSpan={6} className="px-2 py-2">
+                          {sp.hasSignupForm && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">
+                              {sp.signupFormType ?? 'form'}
+                            </span>
+                          )}
+                          {sp.affiliateNetwork && (
+                            <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-900/40 text-indigo-300">
+                              {sp.affiliateNetwork}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : null;
+
+                  return [mainRow, subRows].flat().filter(Boolean);
                 })
               )}
             </tbody>

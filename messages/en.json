@@ -2,6 +2,7 @@
   "nav": {
     "affiliatePrograms": "Affiliate Programs",
     "allPrograms": "All Programs",
+    "devView": "Dev View",
     "llmAudit": "LLM Audit",
     "actionsAndCrawl": "Actions / Crawl",
     "proxyManagement": "Proxy Management",
@@ -545,6 +546,7 @@
       "done": "Done — {improved} / {total} improved",
       "logImproved": "improved",
       "logNoChange": "no change",
+      "logDeleted": "deleted (score 0)",
       "logError": "error",
       "ladyToolsOption": "Lady Tools (Gemini)",
       "ladyToolsHint": "Lady Tools opens a real Chrome tab per domain (~20s each) and reuses the domain's best stored sub-page content instead of re-crawling. Domains that still score 0 will be deleted."

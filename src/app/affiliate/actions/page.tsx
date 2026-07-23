@@ -893,7 +893,7 @@ function UpsertForm() {
 
 // ─── Action: LLM Improve Low Score ───────────────────────────────────────────
 
-type ImproveLog = { domain: string; result: 'improved' | 'nochange' | 'error' };
+type ImproveLog = { domain: string; result: 'improved' | 'nochange' | 'deleted' | 'error' };
 
 function LlmImproveLowScoreForm() {
   const { toast } = useToast();
@@ -967,13 +967,37 @@ function LlmImproveLowScoreForm() {
         const byDomain = new Map(res.results.map((r) => [r.domain, r]));
         const entries: ImproveLog[] = chunk.map((domain) => {
           const r = byDomain.get(domain);
-          const result: ImproveLog['result'] = r?.error ? 'error' : (r?.updated ? 'improved' : 'nochange');
+          // Order matters: both llmImprove and ladyToolsImprove can return
+          // {deleted: true, ...} with no `error` and no `updated` when a
+          // domain's score was reconfirmed as junk after the LLM pass — that
+          // branch previously fell through to 'nochange' (shown as a plain
+          // "—", same as a domain that was genuinely untouched), silently
+          // hiding that the record had actually been removed from the DB.
+          const result: ImproveLog['result'] = r?.error
+            ? 'error'
+            : r?.deleted
+              ? 'deleted'
+              : (r?.updated ? 'improved' : 'nochange');
           return { domain, result };
         });
         setLog((prev) => [...entries.reverse(), ...prev].slice(0, 200));
-      } catch {
-        // Whole-chunk failure (network error, etc.) — log every domain in it as
-        // errored rather than silently dropping their progress entries.
+      } catch (e: unknown) {
+        // Lock contention (Lady Tools already busy — e.g. continuous crawl's
+        // background ladyToolsAuto poll grabbed it first) is recoverable but
+        // not by retrying the SAME chunk immediately: the lock can stay held
+        // for minutes. Continuing the loop as if this were an ordinary
+        // per-chunk network blip meant every remaining chunk (which could be
+        // hundreds of domains) got silently marked 'error' one by one with no
+        // indication of the real cause, ending in a "done: 0/total" toast.
+        // Stop here instead and surface the real reason.
+        const message = e instanceof Error ? e.message : String(e);
+        if (message.includes('already running')) {
+          setLog((prev) => [...chunk.map((domain) => ({ domain, result: 'error' as const })).reverse(), ...prev].slice(0, 200));
+          toast(message, { type: 'error' });
+          break;
+        }
+        // Genuine per-chunk failure (network error, etc.) — log this chunk as
+        // errored and keep going; the next chunk is an independent HTTP call.
         setLog((prev) => [...chunk.map((domain) => ({ domain, result: 'error' as const })).reverse(), ...prev].slice(0, 200));
       }
       done += chunk.length;
@@ -1023,17 +1047,27 @@ function LlmImproveLowScoreForm() {
                 </span>
               </div>
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 max-h-52 overflow-y-auto space-y-0.5 font-mono text-xs">
-                {log.map((entry, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className={entry.result === 'improved' ? 'text-green-400 shrink-0' : entry.result === 'error' ? 'text-red-400 shrink-0' : 'text-[var(--text-muted)] shrink-0'}>
-                      {entry.result === 'improved' ? '↑' : entry.result === 'error' ? '✗' : '—'}
-                    </span>
-                    <span className="text-indigo-400 truncate flex-1">{entry.domain}</span>
-                    <span className={entry.result === 'improved' ? 'text-green-400 shrink-0' : entry.result === 'error' ? 'text-red-400 shrink-0' : 'text-[var(--text-muted)] shrink-0'}>
-                      {entry.result === 'improved' ? t('logImproved') : entry.result === 'error' ? t('logError') : t('logNoChange')}
-                    </span>
-                  </div>
-                ))}
+                {log.map((entry, i) => {
+                  const color = entry.result === 'improved' ? 'text-green-400'
+                    : entry.result === 'error' ? 'text-red-400'
+                    : entry.result === 'deleted' ? 'text-amber-400'
+                    : 'text-[var(--text-muted)]';
+                  const icon = entry.result === 'improved' ? '↑'
+                    : entry.result === 'error' ? '✗'
+                    : entry.result === 'deleted' ? '🗑'
+                    : '—';
+                  const label = entry.result === 'improved' ? t('logImproved')
+                    : entry.result === 'error' ? t('logError')
+                    : entry.result === 'deleted' ? t('logDeleted')
+                    : t('logNoChange');
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className={`${color} shrink-0`}>{icon}</span>
+                      <span className="text-indigo-400 truncate flex-1">{entry.domain}</span>
+                      <span className={`${color} shrink-0`}>{label}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

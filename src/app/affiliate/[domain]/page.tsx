@@ -2,235 +2,52 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { affiliateApi, AffiliateProgram, AffiliateSubPage, AffiliateFetchLog, verificationApi, DomainVerification, RawHtmlResult, FetchDomResult, NetworkRequest } from '@/lib/api';
+import { affiliateApi, AffiliateProgram, AffiliateSubPage, DomainTrafficFull, DomainTrafficGeography, verificationApi, DomainVerification } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
 import {
   ArrowLeft, ExternalLink, Trash2, CheckCircle2, XCircle,
-  BadgeCheck, Sparkles, Globe, Link2, Clock, RefreshCw,
-  Database, Cpu, Hash, BarChart2, ShieldCheck, Activity, Users, Layers,
-  TrendingUp, Camera, Code2, Network,
+  BadgeCheck, Sparkles, Globe, Clock, Users, Layers,
+  TrendingUp, TrendingDown, Search, BarChart2, Code2,
 } from 'lucide-react';
 import clsx from 'clsx';
-
-// ─── Fetch-tier helpers ───────────────────────────────────────────────────────
-
-const TIER_META: Record<number, { label: string; icon: string; color: string }> = {
-  1: { label: 'Axios',        icon: '⚡', color: 'text-blue-400'   },
-  2: { label: 'Playwright',   icon: '🎭', color: 'text-amber-400'  },
-  3: { label: 'FlareSolverr', icon: '🔥', color: 'text-orange-400' },
-};
-
-function FetchTierBadge({ tier, success }: { tier: number; success: boolean }) {
-  const meta = TIER_META[tier] ?? { label: `T${tier}`, icon: '?', color: 'text-gray-400' };
-  return (
-    <span className={clsx(
-      'inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded',
-      success ? 'bg-emerald-900/40 text-emerald-300' : 'bg-red-900/30 text-red-300',
-    )}>
-      <span>{meta.icon}</span>
-      <span>T{tier} {meta.label}</span>
-      {success ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-    </span>
-  );
-}
-
-function FetchLogRow({ log }: { log: AffiliateFetchLog }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className={clsx(
-      'border-b border-[var(--border)] last:border-0 py-2 px-4 text-xs',
-      log.success ? '' : 'bg-red-950/10',
-    )}>
-      <div className="flex items-start gap-3 flex-wrap">
-        <FetchTierBadge tier={log.tier} success={log.success} />
-        {log.durationMs != null && (
-          <span className="text-[var(--text-muted)] tabular-nums">{log.durationMs}ms</span>
-        )}
-        {log.errorCode && (
-          <span className="font-mono text-red-400 font-semibold">{log.errorCode}</span>
-        )}
-        <span className="text-[var(--text-muted)] truncate max-w-[280px]" title={log.url}>
-          {log.url}
-        </span>
-        <span className="ml-auto text-[var(--text-muted)] shrink-0">
-          {new Date(log.crawledAt).toLocaleTimeString()}
-        </span>
-      </div>
-      {log.errorMsg && (
-        <button
-          onClick={() => setExpanded(v => !v)}
-          className="mt-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text)] underline-offset-2 hover:underline"
-        >
-          {expanded ? '▲ hide msg' : '▼ show msg'}
-        </button>
-      )}
-      {expanded && log.errorMsg && (
-        <pre className="mt-1 text-[10px] font-mono text-red-300 whitespace-pre-wrap break-all bg-red-950/20 rounded p-2">
-          {log.errorMsg}
-        </pre>
-      )}
-    </div>
-  );
-}
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell,
+} from 'recharts';
 
 const EMPTY_VALUES = new Set(['', 'null', 'undefined', 'n/a', 'N/A', 'unknown']);
 
-// ─── Field-source helpers ─────────────────────────────────────────────────────
+// ─── Google research link ──────────────────────────────────────────────────
 
-type FieldSrc = 'web' | 'llm' | 'partnerstack' | null;
-
-function FieldSrcTag({ src, url }: { src: FieldSrc; url?: string }) {
-  if (src === 'web')
-    return (
-      <span title={url ?? 'Web crawl'} className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-300 cursor-default shrink-0">
-        🌐 Web
-      </span>
-    );
-  if (src === 'llm')
-    return (
-      <span title="Added / enriched by LLM" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300 cursor-default shrink-0">
-        ✨ LLM
-      </span>
-    );
-  if (src === 'partnerstack')
-    return (
-      <span title="From PartnerStack API" className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300 cursor-default shrink-0">
-        🔗 PS
-      </span>
-    );
-  return null;
+function googleSearchUrl(domain: string, programName: string | null): string {
+  const query = programName ? `${programName} affiliate program` : `${domain} affiliate program`;
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
-function resolveFieldSrc(
-  parentVal: string | number | null | undefined,
-  subVal: string | number | null | undefined,
-  hasLlm: boolean,
-  hasPS: boolean,
-): FieldSrc {
-  if (!parentVal && parentVal !== 0) return null;
-  const pStr = String(parentVal).trim().toLowerCase();
-  const sStr = String(subVal ?? '').trim().toLowerCase();
-  // Sub-page raw extraction had the same non-empty value → came from web crawl
-  if (sStr && sStr !== 'unknown' && sStr === pStr) return 'web';
-  // Sub-page had nothing / "unknown" but parent has value → enriched later
-  if (hasPS) return 'partnerstack';
-  if (hasLlm) return 'llm';
-  return 'web';
-}
+// ─── Row / Section ──────────────────────────────────────────────────────────
 
-// ─── Row ──────────────────────────────────────────────────────────────────────
-
-function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string' && EMPTY_VALUES.has(value)) return null;
+function Row({ label, value, alwaysShow }: { label: string; value: React.ReactNode; alwaysShow?: boolean }) {
+  const isEmpty = value === null || value === undefined || (typeof value === 'string' && EMPTY_VALUES.has(value));
+  if (isEmpty && !alwaysShow) return null;
   return (
     <div className="flex gap-4 py-2.5 border-b border-[var(--border)] last:border-0">
       <dt className="w-44 shrink-0 text-xs text-[var(--text-muted)] pt-0.5">{label}</dt>
-      <dd className={clsx('flex-1 text-sm text-[var(--text)] break-all', mono && 'font-mono text-xs')}>{value}</dd>
+      <dd className={clsx('flex-1 text-sm break-all', isEmpty ? 'text-[var(--text-muted)]' : 'text-[var(--text)]')}>
+        {isEmpty ? '—' : value}
+      </dd>
     </div>
   );
 }
 
-function SubPageCard({ sp }: { sp: AffiliateSubPage }) {
-  const [open, setOpen] = useState(false);
-  const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const [imgLoading, setImgLoading] = useState(false);
-  const scoreColor = sp.affiliateScore >= 70 ? 'text-emerald-400' : sp.affiliateScore >= 40 ? 'text-amber-400' : 'text-red-400';
-
-  async function loadScreenshot() {
-    if (imgUrl || imgLoading) return;
-    setImgLoading(true);
-    const url = await affiliateApi.getSubPageScreenshot(sp.id);
-    setImgUrl(url);
-    setImgLoading(false);
-  }
-
-  return (
-    <div className="border-b border-[var(--border)] last:border-0 px-5 py-3">
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className={clsx('text-xs font-bold tabular-nums w-6 text-right', scoreColor)}>{sp.affiliateScore}</span>
-        <a
-          href={sp.pageUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs font-mono text-[var(--text)] hover:text-indigo-400 flex-1 min-w-0 truncate flex items-center gap-1"
-          title={sp.pageUrl}
-        >
-          {sp.pageUrl}
-          <ExternalLink size={10} className="shrink-0 opacity-50" />
-        </a>
-        {sp.hasSignupForm && (
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300">
-            {sp.signupFormType ?? 'form'}
-          </span>
-        )}
-        {sp.affiliateNetwork && (
-          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-900/40 text-indigo-300">{sp.affiliateNetwork}</span>
-        )}
-        {sp.commissionRate && (
-          <span className="text-xs text-green-400 font-semibold shrink-0">{sp.commissionRate}</span>
-        )}
-        {sp.screenshotPath && !imgUrl && (
-          <button
-            onClick={() => { setOpen(true); loadScreenshot(); }}
-            className="flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 shrink-0"
-            title="Load screenshot"
-          >
-            <Camera size={11} />
-          </button>
-        )}
-        <button onClick={() => setOpen(v => !v)} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text)] underline-offset-2 hover:underline shrink-0">
-          {open ? '▲' : '▼'}
-        </button>
-      </div>
-      {open && (
-        <div className="mt-2 pl-9 space-y-2">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-            {sp.programName && <><dt className="text-[var(--text-muted)]">Program</dt><dd className="text-[var(--text)]">{sp.programName}</dd></>}
-            {sp.commissionType && <><dt className="text-[var(--text-muted)]">Type</dt><dd className="text-[var(--text)]">{sp.commissionType}</dd></>}
-            {sp.cookieDays != null && <><dt className="text-[var(--text-muted)]">Cookie</dt><dd className="text-[var(--text)]">{sp.cookieDays}d</dd></>}
-            {sp.paymentTerms && <><dt className="text-[var(--text-muted)]">Payment</dt><dd className="text-[var(--text)]">{sp.paymentTerms}</dd></>}
-            {sp.signupUrl && (
-              <><dt className="text-[var(--text-muted)]">Signup</dt>
-              <dd><a href={sp.signupUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline truncate block max-w-[200px]">{sp.signupUrl}</a></dd></>
-            )}
-            <><dt className="text-[var(--text-muted)]">Confidence</dt><dd className="text-[var(--text)]">{Math.round(sp.confidence * 100)}%</dd></>
-          </dl>
-          {sp.screenshotPath && (
-            <div>
-              {!imgUrl && !imgLoading && (
-                <button
-                  onClick={loadScreenshot}
-                  className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 border border-amber-700/40 rounded px-2 py-1"
-                >
-                  <Camera size={12} /> Load screenshot
-                </button>
-              )}
-              {imgLoading && <p className="text-xs text-[var(--text-muted)] animate-pulse">Loading screenshot…</p>}
-              {imgUrl && (
-                <img
-                  src={imgUrl}
-                  alt={`Screenshot of ${sp.pageUrl}`}
-                  className="rounded border border-[var(--border)] max-w-full mt-1"
-                  style={{ maxHeight: 320, objectFit: 'cover', objectPosition: 'top' }}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+function SectionHeader({ icon, title, right }: { icon: React.ReactNode; title: string; right?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
       <span className="text-[var(--text-muted)]">{icon}</span>
-      <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
+      <h3 className="text-sm font-semibold text-[var(--text)] flex-1">{title}</h3>
+      {right}
     </div>
   );
 }
@@ -241,6 +58,16 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
       <SectionHeader icon={icon} title={title} />
       <dl className="px-5">{children}</dl>
     </div>
+  );
+}
+
+function ExternalLink_({ href, label }: { href: string; label?: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 hover:underline break-all">
+      {label ?? href}
+      <ExternalLink size={11} className="shrink-0" />
+    </a>
   );
 }
 
@@ -262,95 +89,322 @@ function ScoreGauge({ score }: { score: number }) {
   );
 }
 
-function ConfidenceGauge({ value }: { value: number | null | undefined }) {
-  if (value == null || isNaN(value)) {
-    return <span className="text-sm text-[var(--text-muted)]">—</span>;
-  }
-  const pct   = Math.round(value * 100);
-  const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
-  const text  = pct >= 70 ? 'text-green-300' : pct >= 40 ? 'text-amber-300' : 'text-red-300';
+// ─── Sub-page card — labeled by inferred data source, not raw URL ────────────
+
+function inferSubPageSource(sp: AffiliateSubPage): { label: string; cls: string } {
+  if (sp.llmEnriched) return { label: 'LLM Extract', cls: 'bg-purple-900/40 text-purple-300' };
+  if (sp.thirdPartySource) return { label: 'PartnerStack', cls: 'bg-emerald-900/40 text-emerald-300' };
+  return { label: 'Web Crawl', cls: 'bg-blue-900/40 text-blue-300' };
+}
+
+function safeHostname(url: string): string {
+  try { return new URL(url).hostname; } catch { return url; }
+}
+
+// Table cell — dash for empty, same as Row's alwaysShow behavior but for a <td>.
+function Td({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
+  const isEmpty = children === null || children === undefined ||
+    (typeof children === 'string' && EMPTY_VALUES.has(children));
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 h-2 rounded-full bg-[var(--surface-2)] overflow-hidden">
-        <div className={clsx('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
-      </div>
-      <span className={clsx('text-sm font-bold w-8 text-right tabular-nums', text)}>{pct}%</span>
+    <td className={clsx('px-3 py-2.5 text-xs align-top', mono && 'font-mono')}>
+      {isEmpty ? <span className="text-[var(--text-muted)]">—</span> : children}
+    </td>
+  );
+}
+
+/**
+ * Full 9-field table of sub-pages ("web_data" — distinct pages the crawler
+ * found on this domain, each independently evaluated for affiliate content),
+ * same 9 columns as the top-level "Affiliate Program Details" section so a
+ * researcher can compare the parent domain's data against each individual
+ * page it came from.
+ */
+function SubPagesTable({ subPages }: { subPages: AffiliateSubPage[] }) {
+  const sorted = [...subPages].sort((a, b) => b.affiliateScore - a.affiliateScore);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-[var(--border)] bg-[var(--surface-2)]">
+            {['Score', 'Page URL', 'Program Name', 'Signup URL', 'Commission Rate', 'Commission Type', 'Recurring Duration', 'Cookie Duration', 'Payment Terms', 'Affiliate Network'].map(h => (
+              <th key={h} className="px-3 py-2.5 text-left text-[11px] font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(sp => {
+            const src = inferSubPageSource(sp);
+            const scoreColor = sp.affiliateScore >= 70 ? 'text-emerald-400' : sp.affiliateScore >= 40 ? 'text-amber-400' : 'text-red-400';
+            return (
+              <tr key={sp.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--surface-2)]">
+                <td className="px-3 py-2.5 align-top">
+                  <span className={clsx('text-xs font-bold tabular-nums', scoreColor)}>{sp.affiliateScore}</span>
+                </td>
+                <td className="px-3 py-2.5 align-top max-w-[220px]">
+                  <a href={sp.pageUrl} target="_blank" rel="noopener noreferrer" title={sp.pageUrl}
+                    className={clsx('inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded mb-1 hover:opacity-80', src.cls)}>
+                    web_data
+                    <ExternalLink size={9} className="opacity-60" />
+                  </a>
+                  <p className="text-[11px] font-mono text-[var(--text-muted)] truncate">{sp.pagePath}</p>
+                </td>
+                <Td>{sp.programName}</Td>
+                <Td>{sp.signupUrl ? <ExternalLink_ href={sp.signupUrl} label={safeHostname(sp.signupUrl)} /> : null}</Td>
+                <Td mono>{sp.commissionRate ? <span className="text-green-400 font-semibold">{sp.commissionRate}</span> : null}</Td>
+                <Td>{sp.commissionType && !EMPTY_VALUES.has(sp.commissionType) ? sp.commissionType : null}</Td>
+                <Td>{sp.recurringDuration}</Td>
+                <Td>{sp.cookieDays != null ? `${sp.cookieDays}d` : null}</Td>
+                <Td>{sp.paymentTerms}</Td>
+                <Td>{sp.affiliateNetwork}</Td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function ExternalLink_({ href, label }: { href: string; label?: string }) {
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 hover:underline break-all">
-      {label ?? href}
-      <ExternalLink size={11} className="shrink-0" />
-    </a>
-  );
+// ─── SimilarWeb section — charts + tables ─────────────────────────────────────
+
+function formatVisits(n: number | null): string {
+  if (n == null) return '—';
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }
 
-// ─── Score breakdown ─────────────────────────────────────────────────────────
-
-interface ScoreFactor { label: string; earned: number; max: number; color: string }
-
-function calcScoreBreakdown(p: AffiliateProgram): ScoreFactor[] {
-  const crawlCount      = p.crawlCount      ?? 0;
-  const rateChangeCount = p.rateChangeCount ?? 0;
-  const rateStability   = crawlCount <= 1 || rateChangeCount === 0 ? 5 : rateChangeCount === 1 ? 2 : 0;
-  return [
-    { label: 'Commission Rate',  earned: p.commissionRate   ? 22 : 0,  max: 22, color: 'bg-green-500'   },
-    { label: 'Network Platform', earned: p.affiliateNetwork ? 15 : 0,  max: 15, color: 'bg-blue-500'    },
-    { label: 'Program Name',     earned: p.programName      ?  5 : 0,  max:  5, color: 'bg-indigo-400'  },
-    { label: 'Signup URL',       earned: p.signupUrl        ?  3 : 0,  max:  3, color: 'bg-cyan-500'    },
-    { label: 'URL Verified',     earned: p.signupUrlVerified ?  7 : 0, max:  7, color: 'bg-emerald-500' },
-    { label: 'Cookie Window',    earned: p.cookieDays ? (p.cookieDays >= 90 ? 12 : p.cookieDays >= 30 ? 8 : 4) : 0, max: 12, color: 'bg-amber-500' },
-    { label: 'Commission Type',  earned: (p.commissionType && p.commissionType !== 'unknown') ? 8 : 0,  max:  8, color: 'bg-purple-500'  },
-    { label: 'Recurring Terms',  earned: p.recurringDuration ? (/lifetime/i.test(p.recurringDuration) ? 8 : 5) : 0, max: 8, color: 'bg-violet-500' },
-    { label: 'Payment Terms',    earned: p.paymentTerms     ?  8 : 0,  max:  8, color: 'bg-orange-500'  },
-    { label: 'Data Enrichment',  earned: (p.dataSource && p.dataSource !== 'web_crawl') ? 4 : 0, max: 4, color: 'bg-pink-500'    },
-    { label: 'Screenshot',       earned: p.screenshotPath   ?  3 : 0,  max:  3, color: 'bg-rose-400'    },
-    { label: 'Rate Stability',   earned: rateStability,                max:  5, color: 'bg-teal-500'    },
-  ];
+function formatSeconds(sec: number | null): string {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function ScoreBreakdown({ program }: { program: AffiliateProgram }) {
-  const factors = calcScoreBreakdown(program);
-  const total = factors.reduce((s, f) => s + f.earned, 0);
-  // Authoritative score comes from the backend — the FE breakdown is an approximation.
-  const backendScore = program.affiliateScore ?? 0;
-  const drift = Math.abs(total - backendScore);
+const PIE_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#a855f7'];
+
+function TrafficSourcesChart({ sources }: { sources: Record<string, number> }) {
+  const data = Object.entries(sources)
+    .filter(([, v]) => typeof v === 'number' && v > 0)
+    .map(([name, value]) => ({ name, value: Math.round(value * 1000) / 10 }))
+    .sort((a, b) => b.value - a.value);
+  if (data.length === 0) return <p className="text-xs text-[var(--text-muted)] px-5 py-4">No traffic source data.</p>;
   return (
-    <div className="mt-3 space-y-1.5">
-      {factors.map(f => (
-        <div key={f.label} className="flex items-center gap-2 text-xs">
-          <span className="w-[120px] shrink-0 text-[var(--text-muted)]">{f.label}</span>
-          <div className="flex-1 h-1.5 rounded-full bg-[var(--surface-2)] overflow-hidden">
-            <div
-              className={clsx('h-full rounded-full', f.earned > 0 ? f.color : '')}
-              style={{ width: f.max > 0 ? `${(f.earned / f.max) * 100}%` : '0%' }}
-            />
+    <div className="flex flex-col sm:flex-row items-center gap-4 px-5 py-4">
+      <div style={{ width: 160, height: 160 }}>
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} paddingAngle={2}>
+              {data.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={(v) => `${v}%`} contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex-1 space-y-1.5 w-full">
+        {data.map((d, i) => (
+          <div key={d.name} className="flex items-center gap-2 text-xs">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+            <span className="text-[var(--text)] capitalize flex-1">{d.name.replace(/([A-Z])/g, ' $1').trim()}</span>
+            <span className="text-[var(--text-muted)] tabular-nums">{d.value}%</span>
           </div>
-          <span className={clsx('w-10 text-right tabular-nums shrink-0', f.earned > 0 ? 'text-[var(--text)]' : 'text-[var(--text-muted)]')}>
-            {f.earned}/{f.max}
-          </span>
-        </div>
-      ))}
-      <div className="flex items-center justify-between pt-1 border-t border-[var(--border)] text-xs font-semibold">
-        <span className="text-[var(--text-muted)]">Total (estimate)</span>
-        <div className="flex items-center gap-2">
-          {drift > 5 && (
-            <span className="text-[10px] text-amber-400 font-normal" title={`Backend score: ${backendScore}`}>
-              ≈ (actual: {backendScore})
-            </span>
-          )}
-          <span className={clsx(backendScore >= 70 ? 'text-emerald-300' : backendScore >= 50 ? 'text-amber-300' : 'text-red-300')}>
-            {backendScore} / 100
-          </span>
-        </div>
+        ))}
       </div>
     </div>
   );
 }
+
+function TrendChart({ trendData }: { trendData: number[] }) {
+  if (trendData.length === 0) return null;
+  const data = trendData.map((v, i) => ({
+    label: `M-${trendData.length - 1 - i}`,
+    visits: v,
+  }));
+  return (
+    <div className="px-5 py-4" style={{ height: 200 }}>
+      <ResponsiveContainer>
+        <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} tickFormatter={(v) => formatVisits(v)} width={48} />
+          <Tooltip
+            formatter={(v) => formatVisits(Number(v))}
+            contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }}
+          />
+          <Line type="monotone" dataKey="visits" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Top countries by traffic share — Filters.country carries the id→name map
+// SimilarWeb already resolved for this exact response, so no separate
+// ISO-code table is needed on our side.
+function GeographyTable({ geography }: { geography: DomainTrafficGeography }) {
+  const nameById = new Map<string, string>(
+    (geography.Filters?.country ?? []).map(c => [c.id, c.formattedText || c.text]),
+  );
+  const rows = [...(geography.Data ?? [])].sort((a, b) => b.Share - a.Share).slice(0, 10);
+  if (rows.length === 0) return <p className="text-xs text-[var(--text-muted)] px-5 py-4">No geography data.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-[var(--border)]">
+            {['Country', 'Share', 'Change', 'Bounce Rate', 'Pages/Visit', 'Avg Duration'].map(h => (
+              <th key={h} className="px-5 py-2 text-left font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-[var(--border)] last:border-0">
+              <td className="px-5 py-2 text-[var(--text)]">{nameById.get(String(row.Country)) ?? `#${row.Country}`}</td>
+              <td className="px-5 py-2 font-mono text-[var(--text)]">{(row.Share * 100).toFixed(1)}%</td>
+              <td className="px-5 py-2 font-mono">
+                {row.Change >= 0
+                  ? <span className="text-green-300">+{(row.Change * 100).toFixed(1)}%</span>
+                  : <span className="text-red-300">{(row.Change * 100).toFixed(1)}%</span>}
+              </td>
+              <td className="px-5 py-2 font-mono text-[var(--text-muted)]">{(row.BounceRate * 100).toFixed(1)}%</td>
+              <td className="px-5 py-2 font-mono text-[var(--text-muted)]">{row.PagePerVisit.toFixed(1)}</td>
+              <td className="px-5 py-2 font-mono text-[var(--text-muted)]">{formatSeconds(row.AvgVisitDuration)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SimilarWebSection({ traffic }: { traffic: DomainTrafficFull | null }) {
+  if (!traffic || traffic.lastFetchStatus !== 'success') {
+    return (
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+        <SectionHeader icon={<BarChart2 size={14} />} title="SimilarWeb Traffic" />
+        <p className="px-5 py-4 text-xs text-[var(--text-muted)]">
+          {traffic?.lastFetchStatus === 'error'
+            ? `No traffic data — last sync failed (${traffic.lastFetchError ?? 'unknown error'}).`
+            : traffic?.lastFetchStatus === 'not_found'
+              ? 'No traffic data — domain not found on SimilarWeb.'
+              : 'No traffic data synced yet for this domain.'}
+        </p>
+      </div>
+    );
+  }
+
+  const growth = traffic.last1MonthGrowth;
+  const companyInfo = traffic.companyInfo ?? {};
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+      <SectionHeader
+        icon={<BarChart2 size={14} />}
+        title="SimilarWeb Traffic"
+        right={traffic.fetchedAt && (
+          <span className="text-[10px] text-[var(--text-muted)]">
+            Synced {new Date(traffic.fetchedAt).toLocaleDateString()}
+          </span>
+        )}
+      />
+
+      {/* Key metrics row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4 border-b border-[var(--border)]">
+        <div>
+          <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Monthly Visits</p>
+          <p className="text-lg font-semibold text-[var(--text)] font-mono">{formatVisits(traffic.monthlyVisits ? Number(traffic.monthlyVisits) : null)}</p>
+          {growth != null && (
+            growth >= 0
+              ? <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-green-300"><TrendingUp size={11} />{growth.toFixed(1)}%</span>
+              : <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-red-300"><TrendingDown size={11} />{growth.toFixed(1)}%</span>
+          )}
+        </div>
+        <div>
+          <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Global Rank</p>
+          <p className="text-lg font-semibold text-[var(--text)] font-mono">{traffic.rank != null ? `#${traffic.rank.toLocaleString()}` : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Bounce Rate</p>
+          <p className="text-lg font-semibold text-[var(--text)] font-mono">{traffic.bounceRate != null ? `${traffic.bounceRate.toFixed(1)}%` : '—'}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Time on Site</p>
+          <p className="text-lg font-semibold text-[var(--text)] font-mono">{formatSeconds(traffic.timeOnSite)}</p>
+        </div>
+      </div>
+
+      {/* Trend chart */}
+      {Array.isArray(traffic.trendData) && traffic.trendData.length > 0 && (
+        <div className="border-b border-[var(--border)]">
+          <p className="px-5 pt-3 text-xs font-medium text-[var(--text-muted)]">Visits trend (last {traffic.trendData.length} months)</p>
+          <TrendChart trendData={traffic.trendData} />
+        </div>
+      )}
+
+      {/* Traffic sources */}
+      {traffic.trafficSources && Object.keys(traffic.trafficSources).length > 0 && (
+        <div className="border-b border-[var(--border)]">
+          <p className="px-5 pt-3 text-xs font-medium text-[var(--text-muted)]">Traffic sources</p>
+          <TrafficSourcesChart sources={traffic.trafficSources} />
+        </div>
+      )}
+
+      {/* Engagement metrics — from rawData.engagement, deeper than the top-level columns */}
+      {(() => {
+        const eng = traffic.rawData?.engagement?.Data?.[0];
+        if (!eng) return null;
+        return (
+          <div className="border-b border-[var(--border)] px-5 py-4">
+            <p className="text-xs font-medium text-[var(--text-muted)] mb-3">Engagement</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Unique Users</p>
+                <p className="text-sm font-semibold text-[var(--text)] font-mono">{eng.UniqueUsers != null ? formatVisits(Math.round(eng.UniqueUsers)) : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Visits / User</p>
+                <p className="text-sm font-semibold text-[var(--text)] font-mono">{eng.VisitsPerUser != null ? eng.VisitsPerUser.toFixed(2) : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Total Page Views</p>
+                <p className="text-sm font-semibold text-[var(--text)] font-mono">{eng.TotalPagesViews != null ? formatVisits(Math.round(eng.TotalPagesViews)) : '—'}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-[var(--text-muted)] mb-0.5">Avg Visit Duration</p>
+                <p className="text-sm font-semibold text-[var(--text)] font-mono">{eng.AvgVisitDuration != null ? formatSeconds(eng.AvgVisitDuration) : '—'}</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Geography — top countries by traffic share */}
+      {traffic.geography && (
+        <div className="border-b border-[var(--border)]">
+          <p className="px-5 pt-3 pb-1 text-xs font-medium text-[var(--text-muted)]">Top countries</p>
+          <GeographyTable geography={traffic.geography} />
+        </div>
+      )}
+
+      {/* Category / description / company info */}
+      <dl className="px-5 py-3">
+        <Row alwaysShow label="Category" value={traffic.category} />
+        <Row alwaysShow label="Category Rank" value={traffic.rawData?.categoryRanking != null ? `#${traffic.rawData.categoryRanking.toLocaleString()}` : null} />
+        <Row alwaysShow label="Company Size" value={traffic.rawData?.employeeRange ?? (companyInfo.employeeRange as string | undefined) ?? null} />
+        <Row alwaysShow label="Description" value={traffic.description} />
+        {Object.entries(companyInfo)
+          .filter(([k]) => k !== 'employeeRange')
+          .map(([k, v]) => (
+            <Row key={k} label={k.replace(/([A-Z])/g, ' $1').trim()} value={String(v)} />
+          ))}
+      </dl>
+    </div>
+  );
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function AffiliateDetailPage() {
   const { domain } = useParams<{ domain: string }>();
@@ -361,29 +415,11 @@ export default function AffiliateDetailPage() {
   const t  = useTranslations('affiliateDetail');
   const tc = useTranslations('common');
 
-  const [program, setProgram]     = useState<AffiliateProgram | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [deleting, setDeleting]   = useState(false);
-  const [showRaw, setShowRaw]     = useState(false);
-  const [fetchLogs, setFetchLogs] = useState<AffiliateFetchLog[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [showLogs, setShowLogs]   = useState(false);
+  const [program, setProgram]   = useState<AffiliateProgram | null>(null);
+  const [traffic, setTraffic]   = useState<DomainTrafficFull | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [verifications, setVerifications] = useState<DomainVerification[]>([]);
-  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
-  const [screenshotLoading, setScreenshotLoading] = useState(false);
-
-  // Raw HTML state
-  const [rawHtmlData, setRawHtmlData]       = useState<RawHtmlResult | null>(null);
-  const [rawHtmlLoading, setRawHtmlLoading] = useState(false);
-  const [rawHtmlTab, setRawHtmlTab]         = useState<'html' | 'text'>('text');
-  const [rawHtmlPath, setRawHtmlPath]       = useState('/');
-
-  // DOM + Network state
-  const [domData, setDomData]         = useState<FetchDomResult | null>(null);
-  const [domLoading, setDomLoading]   = useState(false);
-  const [domTab, setDomTab]           = useState<'dom' | 'network' | 'meta' | 'footer' | 'nav'>('network');
-  const [netFilter, setNetFilter]     = useState<string>('all');
-  const [domPath, setDomPath]         = useState('/');
 
   const decoded = decodeURIComponent(domain);
 
@@ -392,30 +428,11 @@ export default function AffiliateDetailPage() {
       .then(setProgram)
       .catch((e: Error) => toast(e.message, { type: 'error' }))
       .finally(() => setLoading(false));
+    affiliateApi.getDomainTraffic(decoded).then(setTraffic).catch(() => {});
     verificationApi.listByDomain(decoded)
       .then(setVerifications)
       .catch(() => {});
   }, [decoded]);
-
-  const loadScreenshot = async () => {
-    if (screenshotUrl) return;
-    setScreenshotLoading(true);
-    const url = await affiliateApi.getScreenshot(decoded).catch(() => null);
-    setScreenshotUrl(url);
-    setScreenshotLoading(false);
-  };
-
-  const loadFetchLogs = async () => {
-    if (fetchLogs.length > 0) { setShowLogs(v => !v); return; }
-    setLogsLoading(true);
-    try {
-      const res = await affiliateApi.fetchLogs(decoded, 100);
-      setFetchLogs(res.rows);
-      setShowLogs(true);
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Không thể tải fetch logs', { type: 'error' });
-    } finally { setLogsLoading(false); }
-  };
 
   const handleDelete = async () => {
     if (!confirm(t('deleteConfirm', { domain: decoded }))) return;
@@ -443,15 +460,6 @@ export default function AffiliateDetailPage() {
     </div>
   );
 
-  const allSignupUrls  = Array.isArray(program.allSignupUrls) ? program.allSignupUrls as string[] : [];
-  const sourceUrls     = Array.isArray(program.sourceUrls)    ? program.sourceUrls    as string[] : [];
-  const primaryHttpUrl = sourceUrls.find(u => u.startsWith('http'));
-  const hasLlm         = sourceUrls.some(u => u.startsWith('llm:'));
-  const hasPS          = sourceUrls.some(u => u.startsWith('partnerstack:'));
-  const primarySubPage = primaryHttpUrl && Array.isArray(program.subPages)
-    ? program.subPages.find(sp => sp.pageUrl === primaryHttpUrl)
-    : undefined;
-
   return (
     <div className="p-6 space-y-5">
       {/* Header */}
@@ -464,6 +472,15 @@ export default function AffiliateDetailPage() {
             <h1 className="text-xl font-semibold font-mono text-[var(--text)]">{program.domain}</h1>
             {program.signupUrlVerified && <BadgeCheck size={18} className="text-emerald-400" />}
             {program.llmEnriched && <Sparkles size={15} className="text-purple-400" />}
+            <a
+              href={googleSearchUrl(program.domain, program.programName)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Research on Google"
+              className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+            >
+              <Search size={15} />
+            </a>
           </div>
           <p className="text-sm text-[var(--text-muted)] mt-0.5">{program.programName ?? t('unknownProgram')}</p>
         </div>
@@ -473,6 +490,9 @@ export default function AffiliateDetailPage() {
               <Button variant="secondary" size="sm" icon={<ExternalLink size={13} />}>{t('signup')}</Button>
             </a>
           )}
+          <Button variant="ghost" size="sm" icon={<Code2 size={13} />} onClick={() => router.push(`/affiliate/dev/${encodeURIComponent(decoded)}`)}>
+            Dev View
+          </Button>
           {isSuperAdmin && (
             <Button variant="danger" size="sm" loading={deleting} icon={<Trash2 size={13} />} onClick={handleDelete}>
               {tc('delete')}
@@ -481,16 +501,11 @@ export default function AffiliateDetailPage() {
         </div>
       </div>
 
-      {/* Overview gauges + status */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      {/* Score + status */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
           <p className="text-xs text-[var(--text-muted)] mb-2">{t('labels.score')}</p>
           <ScoreGauge score={program.affiliateScore} />
-          <ScoreBreakdown program={program} />
-        </div>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-          <p className="text-xs text-[var(--text-muted)] mb-2">{t('labels.confidence')}</p>
-          <ConfidenceGauge value={program.confidence} />
         </div>
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
           <p className="text-xs text-[var(--text-muted)] mb-2">{t('labels.status')}</p>
@@ -505,71 +520,14 @@ export default function AffiliateDetailPage() {
             </Badge>
             {program.llmEnriched && <Badge variant="accent"><span className="flex items-center gap-1"><Sparkles size={10} />{t('llmEnriched')}</span></Badge>}
             {program.affiliateNetwork && <Badge variant="default">{program.affiliateNetwork}</Badge>}
-            <Badge variant="muted">{t('tier')}: {program.fingerprintTier}</Badge>
-            <Badge variant="muted">{t('crawledTimes', { count: program.crawlCount })}</Badge>
           </div>
         </div>
       </div>
 
-      {/* Commission & Payout */}
-      <Section icon={<BarChart2 size={14} />} title={t('sections.commission')}>
-        {primaryHttpUrl && (() => {
-          let isMainPage = false;
-          try {
-            const p = new URL(primaryHttpUrl).pathname.toLowerCase();
-            isMainPage = p === '/' || /^\/(affiliat|partner|refer|earn|ambassador|resell)/i.test(p);
-          } catch { /* ignore */ }
-          return (
-            <Row label="Data from" value={
-              <span className="flex items-center gap-2 flex-wrap">
-                <ExternalLink_ href={primaryHttpUrl} label={(() => { try { return new URL(primaryHttpUrl).pathname || '/'; } catch { return primaryHttpUrl; } })()} />
-                <span className={clsx(
-                  'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                  isMainPage ? 'bg-emerald-900/40 text-emerald-300' : 'bg-amber-900/40 text-amber-300'
-                )}>
-                  {isMainPage ? 'Main page' : 'Sub-page'}
-                </span>
-              </span>
-            } />
-          );
-        })()}
-        <Row label={t('labels.commissionRate')} value={program.commissionRate ? (
-          <span className="flex items-center gap-2">
-            <span className="text-green-400 font-semibold">{program.commissionRate}</span>
-            <FieldSrcTag src={resolveFieldSrc(program.commissionRate, primarySubPage?.commissionRate, hasLlm, hasPS)} url={primaryHttpUrl} />
-          </span>
-        ) : null} />
-        <Row label={t('labels.commissionType')} value={program.commissionType && !EMPTY_VALUES.has(program.commissionType) ? (
-          <span className="flex items-center gap-2">
-            {program.commissionType}
-            <FieldSrcTag src={resolveFieldSrc(program.commissionType, primarySubPage?.commissionType, hasLlm, hasPS)} url={primaryHttpUrl} />
-          </span>
-        ) : null} />
-        <Row label={t('labels.recurringDuration')} value={program.recurringDuration && !EMPTY_VALUES.has(program.recurringDuration) ? (
-          <span className="flex items-center gap-2">
-            {program.recurringDuration}
-            <FieldSrcTag src={resolveFieldSrc(program.recurringDuration, primarySubPage?.recurringDuration, hasLlm, hasPS)} url={primaryHttpUrl} />
-          </span>
-        ) : null} />
-        <Row label={t('labels.cookieDuration')} value={program.cookieDays != null ? (
-          <span className="flex items-center gap-2">
-            <span className={program.cookieDays >= 60 ? 'text-emerald-400' : program.cookieDays >= 30 ? 'text-green-400' : program.cookieDays >= 14 ? 'text-amber-400' : 'text-orange-400'}>
-              {t('days', { count: program.cookieDays })}
-            </span>
-            <FieldSrcTag src={resolveFieldSrc(program.cookieDays, primarySubPage?.cookieDays, hasLlm, hasPS)} url={primaryHttpUrl} />
-          </span>
-        ) : null} />
-        <Row label={t('labels.paymentTerms')} value={program.paymentTerms && !EMPTY_VALUES.has(program.paymentTerms) ? (
-          <span className="flex items-center gap-2">
-            {program.paymentTerms}
-            <FieldSrcTag src={resolveFieldSrc(program.paymentTerms, primarySubPage?.paymentTerms, hasLlm, hasPS)} url={primaryHttpUrl} />
-          </span>
-        ) : null} />
-      </Section>
-
-      {/* URLs */}
-      <Section icon={<Globe size={14} />} title={t('sections.urls')}>
-        <Row label={t('labels.signupUrl')} value={program.signupUrl ? (
+      {/* 9 core affiliate content fields */}
+      <Section icon={<Globe size={14} />} title="Affiliate Program Details">
+        <Row alwaysShow label="Program Name" value={program.programName} />
+        <Row alwaysShow label={t('labels.signupUrl')} value={program.signupUrl ? (
           <span className="flex items-center gap-2 flex-wrap">
             <ExternalLink_ href={program.signupUrl} />
             {program.signupUrlVerified
@@ -577,231 +535,45 @@ export default function AffiliateDetailPage() {
               : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300"><XCircle size={9} />Unverified</span>}
           </span>
         ) : null} />
-        <Row label={t('labels.loginPage')} value={program.loginPageUrl ? <ExternalLink_ href={program.loginPageUrl} /> : null} />
-        <Row label={t('labels.networkUrl')} value={program.affiliateNetworkUrl ? <ExternalLink_ href={program.affiliateNetworkUrl} label={program.affiliateNetwork ?? program.affiliateNetworkUrl} /> : null} />
-        {allSignupUrls.length > 1 && (
-          <Row label={t('labels.allSignupUrls', { count: allSignupUrls.length })} value={
-            <ul className="space-y-1">
-              {allSignupUrls.filter(u => u && u.startsWith('http')).map((u, i) => (
-                <li key={i} className="flex items-center gap-2">
-                  <ExternalLink_ href={u} />
-                  {u === program.signupUrl && !program.signupUrlVerified && (
-                    <span className="text-[10px] text-amber-400">unverified</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          } />
-        )}
+        <Row alwaysShow label={t('labels.commissionRate')} value={program.commissionRate ? <span className="text-green-400 font-semibold">{program.commissionRate}</span> : null} />
+        <Row alwaysShow label={t('labels.commissionType')} value={program.commissionType && !EMPTY_VALUES.has(program.commissionType) ? program.commissionType : null} />
+        <Row alwaysShow label={t('labels.recurringDuration')} value={program.recurringDuration && !EMPTY_VALUES.has(program.recurringDuration) ? program.recurringDuration : null} />
+        <Row alwaysShow label={t('labels.cookieDuration')} value={program.cookieDays != null ? (
+          <span className={program.cookieDays >= 60 ? 'text-emerald-400' : program.cookieDays >= 30 ? 'text-green-400' : program.cookieDays >= 14 ? 'text-amber-400' : 'text-orange-400'}>
+            {t('days', { count: program.cookieDays })}
+          </span>
+        ) : null} />
+        <Row alwaysShow label={t('labels.paymentTerms')} value={program.paymentTerms && !EMPTY_VALUES.has(program.paymentTerms) ? program.paymentTerms : null} />
+        <Row alwaysShow label={t('labels.affiliateNetwork')} value={program.affiliateNetwork} />
+        <Row alwaysShow label={t('labels.networkUrl')} value={program.affiliateNetworkUrl ? <ExternalLink_ href={program.affiliateNetworkUrl} label={program.affiliateNetwork ?? program.affiliateNetworkUrl} /> : null} />
       </Section>
 
-      {/* Data Quality */}
-      <Section icon={<ShieldCheck size={14} />} title={t('sections.dataQuality')}>
-        <Row label={t('labels.dataSource')}      value={program.dataSource} />
-        <Row label={t('labels.affiliateNetwork')} value={program.affiliateNetwork} />
-        <Row label={t('labels.fingerprintTier')} value={program.fingerprintTier} />
-        <Row label={t('labels.llmEnriched')}     value={program.llmEnriched ? tc('yes') : tc('no')} />
-        <Row label={t('labels.urlVerified')}     value={program.signupUrlVerified ? tc('yes') : tc('no')} />
-        <Row label={t('labels.score')}           value={String(program.affiliateScore)} />
-        <Row label={t('labels.confidence')}      value={`${Math.round(program.confidence * 100)}%`} />
-        <Row label={t('labels.crawlCount')}      value={String(program.crawlCount)} />
-      </Section>
+      {/* SimilarWeb traffic analysis */}
+      <SimilarWebSection traffic={traffic} />
 
-      {/* Timeline */}
-      <Section icon={<Clock size={14} />} title={t('sections.timeline')}>
-        <Row label={t('labels.firstCrawled')} value={program.crawledAt ? new Date(program.crawledAt).toLocaleString() : null} />
-        <Row label={t('labels.lastUpdated')}  value={program.updatedAt  ? new Date(program.updatedAt).toLocaleString()  : null} />
-        {program.signupUrlVerified && (
-          <Row label={t('labels.lastVerified')} value={program.lastVerifiedAt ? new Date(program.lastVerifiedAt).toLocaleString() : null} />
-        )}
-      </Section>
-
-      {/* Source URLs */}
-      {sourceUrls.length > 0 && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-          <SectionHeader icon={<Link2 size={14} />} title={t('sections.sourceUrls', { count: sourceUrls.length })} />
-          <ul className="px-5 py-3 space-y-1.5">
-            {sourceUrls.map((u, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="text-xs text-[var(--text-muted)] tabular-nums w-5 shrink-0 pt-0.5">{i + 1}.</span>
-                {u.startsWith('http')
-                  ? <ExternalLink_ href={u} />
-                  : <span className="text-xs font-mono text-[var(--text-muted)] break-all">{u}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Raw Data */}
-      {program.rawAffiliateData && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
-            <div className="flex items-center gap-2 text-[var(--text-muted)]">
-              <Database size={14} />
-              <span className="text-sm font-semibold text-[var(--text)]">{t('sections.rawData')}</span>
-            </div>
-            <Button variant="ghost" size="sm" icon={<RefreshCw size={12} />} onClick={() => setShowRaw(v => !v)}>
-              {showRaw ? tc('hide') : tc('show')}
-            </Button>
-          </div>
-          {showRaw && (
-            <pre className="px-5 py-4 text-xs font-mono text-green-300 overflow-auto max-h-96 leading-relaxed whitespace-pre-wrap">
-              {typeof program.rawAffiliateData === 'string'
-                ? program.rawAffiliateData
-                : JSON.stringify(program.rawAffiliateData, null, 2)}
-            </pre>
-          )}
-        </div>
-      )}
-
-      {/* Fetch Tier Logs */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
-          <div className="flex items-center gap-2">
-            <Activity size={14} className="text-[var(--text-muted)]" />
-            <h3 className="text-sm font-semibold text-[var(--text)]">Fetch Tier Logs</h3>
-            {program.fetchTierReached != null && (
-              <span className={clsx(
-                'text-[10px] font-bold px-1.5 py-0.5 rounded ml-1',
-                program.fetchTierReached === 1 ? 'bg-blue-900/40 text-blue-300' :
-                program.fetchTierReached === 2 ? 'bg-amber-900/40 text-amber-300' :
-                                                  'bg-orange-900/40 text-orange-300',
-              )}>
-                {TIER_META[program.fetchTierReached]?.icon} T{program.fetchTierReached} {TIER_META[program.fetchTierReached]?.label}
-              </span>
-            )}
-            {program.lastFetchError && (
-              <span className="text-[10px] font-mono text-red-400 bg-red-950/30 px-1.5 py-0.5 rounded">
-                {program.lastFetchError}
-              </span>
-            )}
-          </div>
-          <Button variant="ghost" size="sm" loading={logsLoading}
-            icon={<RefreshCw size={12} className={logsLoading ? 'animate-spin' : ''} />}
-            onClick={loadFetchLogs}>
-            {showLogs ? 'Hide' : 'Show logs'}
-          </Button>
-        </div>
-        {showLogs && (
-          fetchLogs.length === 0
-            ? (
-              <div className="px-5 py-4 space-y-1">
-                <p className="text-xs text-[var(--text-muted)]">Chưa có fetch log nào cho domain này.</p>
-                <p className="text-[11px] text-[var(--text-muted)] opacity-70">
-                  Log được ghi khi crawl domain — nhấn <strong>Crawl</strong> để tạo log mới.
-                </p>
-              </div>
-            )
-            : <div className="divide-y divide-[var(--border)]">
-                {fetchLogs.map(log => <FetchLogRow key={log.id} log={log} />)}
-              </div>
-        )}
-      </div>
-
-      {/* Sub Programs */}
+      {/* Sub programs (web_data) — same 9 fields as the parent, per discovered page */}
       {Array.isArray(program.subPages) && program.subPages.length > 0 && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
           <SectionHeader
             icon={<Layers size={14} />}
-            title={`Sub Programs (${program.subPages.length}${program.subProgramCount && program.subProgramCount > program.subPages.length ? ` of ${program.subProgramCount}` : ''})`}
+            title={`Sub Programs — web_data (${program.subPages.length}${program.subProgramCount && program.subProgramCount > program.subPages.length ? ` of ${program.subProgramCount}` : ''})`}
           />
-          <div className="text-[10px] text-[var(--text-muted)] px-5 pt-2 pb-1">
-            Distinct affiliate sub-pages discovered during crawl, sorted by score.
-          </div>
-          <div>
-            {[...program.subPages]
-              .sort((a, b) => b.affiliateScore - a.affiliateScore)
-              .map(sp => <SubPageCard key={sp.id} sp={sp} />)}
-          </div>
+          <SubPagesTable subPages={program.subPages} />
         </div>
       )}
 
-      {/* Rate History + Screenshot */}
-      {(Array.isArray(program.rateHistory) && program.rateHistory.length > 0) || program.screenshotAt ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {Array.isArray(program.rateHistory) && program.rateHistory.length > 0 && (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-              <SectionHeader icon={<TrendingUp size={14} />} title={`Rate History${program.rateChangeCount ? ` — ${program.rateChangeCount} change${program.rateChangeCount > 1 ? 's' : ''}` : ' — stable'}`} />
-              <div className="px-5 py-3 space-y-2">
-                {program.rateHistory.map((entry, i) => {
-                  const prev = program.rateHistory![i + 1];
-                  const changed = prev && entry.rate !== prev.rate;
-                  return (
-                    <div key={i} className="flex items-center gap-3 text-xs">
-                      <span className="text-[var(--text-muted)] tabular-nums w-32 shrink-0">
-                        {new Date(entry.crawledAt).toLocaleDateString()}
-                      </span>
-                      <span className={clsx(
-                        'font-semibold font-mono',
-                        entry.rate ? (i === 0 ? 'text-green-400' : 'text-[var(--text)]') : 'text-[var(--text-muted)]'
-                      )}>
-                        {entry.rate ?? 'n/a'}
-                      </span>
-                      <span className="text-[var(--text-muted)]">{entry.type}</span>
-                      {changed && (
-                        <span className="text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-900/30">changed</span>
-                      )}
-                      {i === 0 && <span className="text-[10px] text-indigo-400 font-semibold px-1.5 py-0.5 rounded bg-indigo-900/30">latest</span>}
-                    </div>
-                  );
-                })}
-                <p className="text-[10px] text-[var(--text-muted)] pt-1">
-                  {program.rateChangeCount === 0
-                    ? 'Rate has been consistent across all crawls — high reliability.'
-                    : program.rateChangeCount! <= 2
-                      ? 'Rate changed occasionally — verify before using.'
-                      : 'Rate changed frequently — low reliability, manual verification recommended.'}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {program.screenshotAt && (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
-                <div className="flex items-center gap-2">
-                  <Camera size={14} className="text-[var(--text-muted)]" />
-                  <h3 className="text-sm font-semibold text-[var(--text)]">Screenshot</h3>
-                  <span className="text-xs text-[var(--text-muted)]">
-                    {new Date(program.screenshotAt).toLocaleString()}
-                  </span>
-                </div>
-                <Button variant="ghost" size="sm" loading={screenshotLoading}
-                  icon={<RefreshCw size={12} className={screenshotLoading ? 'animate-spin' : ''} />}
-                  onClick={loadScreenshot}>
-                  {screenshotUrl ? 'Reload' : 'Load'}
-                </Button>
-              </div>
-              {screenshotUrl ? (
-                <div className="p-3">
-                  <img
-                    src={screenshotUrl}
-                    alt={`Screenshot of ${decoded}`}
-                    className="w-full rounded border border-[var(--border)] object-top"
-                    style={{ maxHeight: 480, objectFit: 'cover' }}
-                  />
-                </div>
-              ) : (
-                <p className="px-5 py-4 text-xs text-[var(--text-muted)]">
-                  Click &quot;Load&quot; to view the captured page screenshot.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {/* Content Hash + User Verifications */}
+      {/* Timeline + user verifications */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {program.contentHash && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-            <SectionHeader icon={<Hash size={14} />} title={t('sections.contentHash')} />
-            <div className="px-5 py-3">
-              <code className="text-xs font-mono text-[var(--text-muted)] break-all">{program.contentHash}</code>
-            </div>
-          </div>
-        )}
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+          <SectionHeader icon={<Clock size={14} />} title={t('sections.timeline')} />
+          <dl className="px-5">
+            <Row label={t('labels.firstCrawled')} value={program.crawledAt ? new Date(program.crawledAt).toLocaleString() : null} />
+            <Row label={t('labels.lastUpdated')}  value={program.updatedAt  ? new Date(program.updatedAt).toLocaleString()  : null} />
+            {program.signupUrlVerified && (
+              <Row label={t('labels.lastVerified')} value={program.lastVerifiedAt ? new Date(program.lastVerifiedAt).toLocaleString() : null} />
+            )}
+          </dl>
+        </div>
 
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
           <SectionHeader icon={<Users size={14} />} title={t('sections.userVerifications')} />
@@ -810,294 +582,34 @@ export default function AffiliateDetailPage() {
           ) : (
             <div className="divide-y divide-[var(--border)]">
               {verifications.map((v) => {
-              const optionColors: Record<number, string> = {
-                1: 'text-emerald-400',
-                2: 'text-red-400',
-                3: 'text-amber-400',
-                4: 'text-[var(--text-muted)]',
-              };
-              const optionIcons: Record<number, string> = { 1: '✓', 2: '✗', 3: '~', 4: '?' };
-              return (
-                <div key={v.userId} className="flex items-start gap-3 px-5 py-3 text-sm">
-                  <span className={clsx('text-base font-bold w-5 shrink-0 text-center', optionColors[v.option])}>
-                    {optionIcons[v.option]}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-[var(--text)]">{v.username}</span>
-                      <span className={clsx('text-xs font-semibold', optionColors[v.option])}>
-                        {t(`verify.option${v.option}`)}
-                      </span>
-                    </div>
-                    {v.note && (
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)] break-words">{v.note}</p>
-                    )}
-                  </div>
-                  <span className="text-xs text-[var(--text-muted)] shrink-0 tabular-nums">
-                    {new Date(v.updatedAt).toLocaleDateString()}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        </div>
-      </div>
-
-      {/* ── Raw HTML Viewer ──────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
-          <div className="flex items-center gap-2">
-            <Code2 size={14} className="text-[var(--text-muted)]" />
-            <h3 className="text-sm font-semibold text-[var(--text)]">Raw HTML (Tier-1 Axios)</h3>
-            {rawHtmlData && (
-              <span className={clsx(
-                'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                rawHtmlData.status === 200 ? 'bg-emerald-900/40 text-emerald-300' : 'bg-red-900/40 text-red-300',
-              )}>
-                HTTP {rawHtmlData.status ?? 'err'} · {(rawHtmlData.htmlLength / 1024).toFixed(1)} KB
-                {rawHtmlData.truncated && ' (truncated)'}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              className="rounded border bg-[var(--surface)] border-[var(--border)] px-2 py-1 text-xs text-[var(--text)] w-28 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
-              placeholder="path e.g. /affiliates"
-              value={rawHtmlPath}
-              onChange={e => setRawHtmlPath(e.target.value)}
-            />
-            <Button variant="ghost" size="sm" loading={rawHtmlLoading}
-              icon={<RefreshCw size={12} className={rawHtmlLoading ? 'animate-spin' : ''} />}
-              onClick={async () => {
-                setRawHtmlLoading(true);
-                try { setRawHtmlData(await affiliateApi.rawHtml(decoded, rawHtmlPath || '/')); }
-                catch (e: unknown) { toast(e instanceof Error ? e.message : 'Failed', { type: 'error' }); }
-                finally { setRawHtmlLoading(false); }
-              }}>
-              Fetch
-            </Button>
-          </div>
-        </div>
-        {rawHtmlData && (
-          <div>
-            <div className="flex gap-1 px-4 pt-3 pb-0 border-b border-[var(--border)]">
-              {(['text', 'html'] as const).map(tab => (
-                <button key={tab} onClick={() => setRawHtmlTab(tab)}
-                  className={clsx(
-                    'px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors',
-                    rawHtmlTab === tab
-                      ? 'border-[var(--accent)] text-[var(--accent)]'
-                      : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]',
-                  )}>
-                  {tab === 'text' ? 'Plain Text (LLM input)' : 'Raw HTML'}
-                </button>
-              ))}
-            </div>
-            {rawHtmlData.errorMsg && (
-              <p className="px-5 py-2 text-xs text-red-400 font-mono">{rawHtmlData.errorMsg}</p>
-            )}
-            {rawHtmlData.finalUrl !== rawHtmlData.url && (
-              <p className="px-5 py-1.5 text-[11px] text-amber-400">
-                Redirected → <span className="font-mono">{rawHtmlData.finalUrl}</span>
-              </p>
-            )}
-            <pre className="px-5 py-4 text-xs font-mono text-green-300 overflow-auto max-h-96 leading-relaxed whitespace-pre-wrap break-all">
-              {rawHtmlTab === 'text'
-                ? (rawHtmlData.plainText || '(no text extracted)')
-                : (rawHtmlData.html      || '(no HTML returned)')}
-            </pre>
-            <p className="px-5 pb-3 text-[10px] text-[var(--text-muted)]">
-              Fetched {new Date(rawHtmlData.fetchedAt).toLocaleString()} · {rawHtmlData.htmlLength.toLocaleString()} bytes raw
-              {rawHtmlData.truncated && ' · truncated at 150 KB'}
-            </p>
-          </div>
-        )}
-        {!rawHtmlData && !rawHtmlLoading && (
-          <p className="px-5 py-4 text-xs text-[var(--text-muted)]">
-            Click <strong>Fetch</strong> to live-fetch the page via Axios (Tier 1) and see exactly what the crawler receives — the same text that gets sent to LLM extraction.
-          </p>
-        )}
-      </div>
-
-      {/* ── DOM + Network Inspector ───────────────────────────────────────── */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
-          <div className="flex items-center gap-2">
-            <Network size={14} className="text-[var(--text-muted)]" />
-            <h3 className="text-sm font-semibold text-[var(--text)]">DOM + Network (Playwright)</h3>
-            {domData && (
-              <span className={clsx(
-                'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                domData.status === 'ok'           ? 'bg-emerald-900/40 text-emerald-300'
-                : domData.status === 'cf_challenge' ? 'bg-orange-900/40 text-orange-300'
-                : 'bg-red-900/40 text-red-300',
-              )}>
-                {domData.status === 'ok' ? '✓ OK' : domData.status === 'cf_challenge' ? '⚠ CF Challenge' : '✗ Error'} · {domData.network.totalRequests} requests
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              className="rounded border bg-[var(--surface)] border-[var(--border)] px-2 py-1 text-xs text-[var(--text)] w-28 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
-              placeholder="path e.g. /affiliates"
-              value={domPath}
-              onChange={e => setDomPath(e.target.value)}
-            />
-            <Button variant="ghost" size="sm" loading={domLoading}
-              icon={<RefreshCw size={12} className={domLoading ? 'animate-spin' : ''} />}
-              onClick={async () => {
-                setDomLoading(true);
-                try { setDomData(await affiliateApi.fetchDom(decoded, domPath || '/')); }
-                catch (e: unknown) { toast(e instanceof Error ? e.message : 'Failed', { type: 'error' }); }
-                finally { setDomLoading(false); }
-              }}>
-              Fetch DOM
-            </Button>
-          </div>
-        </div>
-        {domData && (
-          <div>
-            {/* Title + redirect */}
-            <div className="px-5 pt-3 pb-2 flex flex-wrap gap-3 text-xs">
-              {domData.title && <span className="text-[var(--text)] font-medium">&quot;{domData.title}&quot;</span>}
-              {domData.finalUrl !== domData.url && (
-                <span className="text-amber-400 font-mono">→ {domData.finalUrl}</span>
-              )}
-              {domData.navError && <span className="text-red-400">{domData.navError}</span>}
-            </div>
-
-            {/* Tabs */}
-            <div className="flex gap-1 px-4 border-b border-[var(--border)] flex-wrap">
-              {([
-                { key: 'network', label: `Network (${domData.network.totalRequests})` },
-                { key: 'meta',    label: `Meta (${domData.metaTags.length})` },
-                { key: 'dom',     label: domData.domTruncated ? `DOM HTML (trunc ${(150_000 / 1024).toFixed(0)}KB / ${(domData.domHtmlLength / 1024).toFixed(0)}KB)` : 'DOM HTML' },
-                ...(domData.footerHtml ? [{ key: 'footer', label: 'Footer' }] : []),
-                ...(domData.navHtml    ? [{ key: 'nav',    label: 'Nav/Header' }] : []),
-              ] as { key: typeof domTab; label: string }[]).map(({ key, label }) => (
-                <button key={key} onClick={() => setDomTab(key)}
-                  className={clsx(
-                    'px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors',
-                    domTab === key
-                      ? 'border-[var(--accent)] text-[var(--accent)]'
-                      : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]',
-                  )}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Network tab */}
-            {domTab === 'network' && (
-              <div>
-                {/* Type summary chips */}
-                <div className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-[var(--border)]">
-                  {(['all', ...Object.keys(domData.network.byType)] as string[]).map(type => (
-                    <button key={type} onClick={() => setNetFilter(type)}
-                      className={clsx(
-                        'px-2 py-0.5 rounded-full border text-[11px] font-medium transition-colors',
-                        netFilter === type
-                          ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                          : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]',
-                      )}>
-                      {type}{type !== 'all' ? ` (${domData.network.byType[type]})` : ` (${domData.network.totalRequests})`}
-                    </button>
-                  ))}
-                </div>
-                <div className="divide-y divide-[var(--border)] max-h-80 overflow-y-auto font-mono text-[11px]">
-                  {domData.network.requests
-                    .filter((r: NetworkRequest) => netFilter === 'all' || r.type === netFilter)
-                    .map((r: NetworkRequest, i: number) => (
-                      <div key={i} className="px-4 py-1.5 flex flex-col gap-0.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={clsx(
-                            'text-[10px] font-semibold px-1 py-0.5 rounded shrink-0',
-                            r.type === 'xhr' || r.type === 'fetch' ? 'bg-indigo-900/40 text-indigo-300'
-                              : r.type === 'script' ? 'bg-amber-900/40 text-amber-300'
-                              : r.type === 'document' ? 'bg-emerald-900/40 text-emerald-300'
-                              : 'bg-[var(--surface-2)] text-[var(--text-muted)]',
-                          )}>{r.type}</span>
-                          <span className={clsx('text-[10px] font-bold shrink-0', r.method === 'POST' ? 'text-orange-400' : 'text-blue-400')}>{r.method}</span>
-                          {r.response && (
-                            <span className={clsx('text-[10px] shrink-0', r.response.status < 300 ? 'text-green-400' : 'text-red-400')}>
-                              {r.response.status}
-                            </span>
-                          )}
-                          <span className="text-[var(--text-muted)] truncate flex-1" title={r.url}>{r.url}</span>
-                        </div>
-                        {r.postData && (
-                          <div className="pl-2 text-[10px] text-amber-300 truncate">POST: {r.postData.slice(0, 200)}</div>
-                        )}
-                        {r.response?.body && (
-                          <div className="pl-2 text-[10px] text-green-400 truncate">↩ {r.response.body.slice(0, 200)}</div>
-                        )}
+                const optionColors: Record<number, string> = {
+                  1: 'text-emerald-400', 2: 'text-red-400', 3: 'text-amber-400', 4: 'text-[var(--text-muted)]',
+                };
+                const optionIcons: Record<number, string> = { 1: '✓', 2: '✗', 3: '~', 4: '?' };
+                return (
+                  <div key={v.userId} className="flex items-start gap-3 px-5 py-3 text-sm">
+                    <span className={clsx('text-base font-bold w-5 shrink-0 text-center', optionColors[v.option])}>
+                      {optionIcons[v.option]}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-[var(--text)]">{v.username}</span>
+                        <span className={clsx('text-xs font-semibold', optionColors[v.option])}>
+                          {t(`verify.option${v.option}`)}
+                        </span>
                       </div>
-                    ))}
-                </div>
-              </div>
-            )}
-
-            {/* Meta tags tab */}
-            {domTab === 'meta' && (
-              <div className="divide-y divide-[var(--border)] max-h-72 overflow-y-auto font-mono text-[11px]">
-                {domData.metaTags.map((m, i) => (
-                  <div key={i} className="flex gap-3 px-4 py-1.5">
-                    <span className="text-indigo-400 w-48 shrink-0 truncate">{m.name ?? m.charset}</span>
-                    <span className="text-[var(--text-muted)] truncate flex-1">{m.content ?? '(charset)'}</span>
+                      {v.note && <p className="mt-0.5 text-xs text-[var(--text-muted)] break-words">{v.note}</p>}
+                    </div>
+                    <span className="text-xs text-[var(--text-muted)] shrink-0 tabular-nums">
+                      {new Date(v.updatedAt).toLocaleDateString()}
+                    </span>
                   </div>
-                ))}
-                {domData.metaTags.length === 0 && (
-                  <p className="px-4 py-3 text-[var(--text-muted)] italic">No meta tags found.</p>
-                )}
-              </div>
-            )}
-
-            {/* DOM HTML tab */}
-            {domTab === 'dom' && (
-              <pre className="px-5 py-4 text-xs font-mono text-green-300 overflow-auto max-h-96 leading-relaxed whitespace-pre-wrap break-all">
-                {domData.domHtml || '(empty)'}
-                {domData.domTruncated && `\n\n… (truncated — showing first 150 KB of ${(domData.domHtmlLength / 1024).toFixed(0)} KB total. Use Footer / Nav tabs to see late-rendered sections.)`}
-              </pre>
-            )}
-
-            {/* Footer HTML tab */}
-            {domTab === 'footer' && (
-              <pre className="px-5 py-4 text-xs font-mono text-emerald-300 overflow-auto max-h-96 leading-relaxed whitespace-pre-wrap break-all">
-                {domData.footerHtml || '(no <footer> element found)'}
-              </pre>
-            )}
-
-            {/* Nav/Header HTML tab */}
-            {domTab === 'nav' && (
-              <pre className="px-5 py-4 text-xs font-mono text-sky-300 overflow-auto max-h-96 leading-relaxed whitespace-pre-wrap break-all">
-                {domData.navHtml || '(no <nav> or <header> element found)'}
-              </pre>
-            )}
-
-            <p className="px-5 py-2 text-[10px] text-[var(--text-muted)] border-t border-[var(--border)]">
-              Fetched {new Date(domData.fetchedAt).toLocaleString()} · DOM {(domData.domHtmlLength / 1024).toFixed(1)} KB
-              {domData.domTruncated && <span className="text-amber-400 ml-1">(truncated)</span>}
-            </p>
-          </div>
-        )}
-        {!domData && !domLoading && (
-          <p className="px-5 py-4 text-xs text-[var(--text-muted)]">
-            Click <strong>Fetch DOM</strong> to use Playwright to fully render the page, capture all network requests (XHR/fetch/scripts), and inspect the live DOM — useful for diagnosing why LLM extraction misses certain data.
-          </p>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-
-      {/* Full JSON */}
-      <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <summary className="flex items-center gap-2 px-5 py-3 cursor-pointer text-sm text-[var(--text-muted)] hover:text-[var(--text)] select-none bg-[var(--surface-2)]">
-          <Cpu size={14} />
-          <span className="font-medium ml-1">{t('sections.fullRecord')}</span>
-        </summary>
-        <pre className="px-5 py-4 text-xs font-mono text-[var(--text-muted)] overflow-auto max-h-96 leading-relaxed">
-          {JSON.stringify(program, null, 2)}
-        </pre>
-      </details>
     </div>
   );
 }

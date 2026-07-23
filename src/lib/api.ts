@@ -98,6 +98,7 @@ export interface AffiliateSubPage {
   signupFormType: string | null;
   affiliateScore: number;
   llmEnriched: boolean;
+  thirdPartySource?: boolean;
   screenshotPath?: string | null;
   screenshotAt?: string | null;
   crawledAt: string;
@@ -157,6 +158,75 @@ export interface AffiliateProgram {
    * anyoneSignedUp is a shared/group signal (true if ANY user has marked it). See affiliate-signup-marker. */
   signedUpByMe?: boolean;
   anyoneSignedUp?: boolean;
+  /** Cached SimilarWeb traffic snapshot, joined in by GET /affiliate (list) — null if never synced. */
+  domainTraffic?: DomainTraffic | null;
+}
+
+/** Cached SimilarWeb traffic snapshot for a domain (list view subset) — see similarwebApi.js on the backend. */
+export interface DomainTraffic {
+  rank: number | null;
+  /** BigInt on the backend, serialized to a string over JSON. */
+  monthlyVisits: string | null;
+  last1MonthGrowth: number | null;
+  bounceRate: number | null;
+  /** Seconds. */
+  timeOnSite: number | null;
+  fetchedAt: string | null;
+  lastFetchStatus: string | null;
+}
+
+/** One country's traffic share within DomainTrafficFull.geography.Data. */
+export interface DomainTrafficGeoEntry {
+  Rank: number;
+  Share: number;
+  Change: number;
+  /** Numeric ISO-ish country code as used by SimilarWeb, not ISO-3166 alpha. */
+  Country: number;
+  BounceRate: number;
+  UsersShare: number;
+  PagePerVisit: number;
+  AvgVisitDuration: number;
+}
+
+export interface DomainTrafficGeography {
+  Data: DomainTrafficGeoEntry[];
+  Filters?: { country?: Array<{ id: string; text: string; formattedText: string }> };
+  TotalCount?: number;
+}
+
+/** Subset of the raw SimilarWeb payload worth surfacing beyond the normalized columns. */
+export interface DomainTrafficRawData {
+  title?: string;
+  icon?: string;
+  employeeRange?: string;
+  categoryRanking?: number;
+  highestTrafficCountry?: number;
+  engagement?: {
+    Data?: Array<{
+      UniqueUsers?: number;
+      VisitsPerUser?: number;
+      TotalPagesViews?: number;
+      AvgVisitDuration?: number;
+      DedupUniqueUsers?: number;
+    }>;
+  };
+}
+
+/** Full SimilarWeb traffic snapshot — returned by GET /affiliate/traffic/:domain. */
+export interface DomainTrafficFull extends DomainTraffic {
+  trendData: number[] | null;
+  pagesPerVisit: number | null;
+  category: string | null;
+  description: string | null;
+  trafficSources: Record<string, number> | null;
+  organicKeywords: unknown[] | null;
+  paidKeywords: unknown[] | null;
+  geography: DomainTrafficGeography | null;
+  companyInfo: Record<string, unknown> | null;
+  fetchCount: number;
+  cached: boolean;
+  lastFetchError: string | null;
+  rawData: DomainTrafficRawData | null;
 }
 
 export interface AffiliateProgramTree {
@@ -463,6 +533,8 @@ export const affiliateApi = {
 
   getTree: (domain: string) => request<AffiliateProgramTree>(`/affiliate/tree/${encodeURIComponent(domain)}`),
 
+  getDomainTraffic: (domain: string) => request<DomainTrafficFull | null>(`/affiliate/traffic/${encodeURIComponent(domain)}`),
+
   markSignedUp: (domain: string) =>
     request<{ domain: string; markedByUserId: number; markedByUsername: string; markedAt: string }>(
       `/affiliate/signup/${encodeURIComponent(domain)}`,
@@ -723,7 +795,11 @@ export const crawlAffiliateApi = {
   llmImprove: (domains: string[], model?: string) =>
     request<{
       total: number; improved: number; errors: number;
-      results: Array<{ domain: string; found?: boolean; updated?: boolean; error?: string }>;
+      // deleted: true, no `error`/`updated` — processDomain() reconfirmed the
+      // domain's score is 0 after this LLM pass and removed its record
+      // (AUTO_DELETE_ZERO_SCORE). Distinct from a domain that was simply
+      // left unchanged.
+      results: Array<{ domain: string; found?: boolean; updated?: boolean; deleted?: boolean; error?: string }>;
     }>('/crawl-affiliate/llm-improve', {
       method: 'POST',
       body: JSON.stringify({ domains, ...(model ? { model } : {}) }),
