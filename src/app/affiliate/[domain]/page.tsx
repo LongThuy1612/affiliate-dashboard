@@ -490,9 +490,11 @@ export default function AffiliateDetailPage() {
               <Button variant="secondary" size="sm" icon={<ExternalLink size={13} />}>{t('signup')}</Button>
             </a>
           )}
-          <Button variant="ghost" size="sm" icon={<Code2 size={13} />} onClick={() => router.push(`/affiliate/dev/${encodeURIComponent(decoded)}`)}>
-            Dev View
-          </Button>
+          {isSuperAdmin && (
+            <Button variant="ghost" size="sm" icon={<Code2 size={13} />} onClick={() => router.push(`/affiliate/dev/${encodeURIComponent(decoded)}`)}>
+              Dev View
+            </Button>
+          )}
           {isSuperAdmin && (
             <Button variant="danger" size="sm" loading={deleting} icon={<Trash2 size={13} />} onClick={handleDelete}>
               {tc('delete')}

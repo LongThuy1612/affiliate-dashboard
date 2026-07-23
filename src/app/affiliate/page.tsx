@@ -1142,11 +1142,13 @@ export default function AffiliatePage() {
             onClick={() => setShowExportModal(true)}>
             {tExport('button')}
           </Button>
-          <Button variant="secondary" size="sm" icon={<Upload size={13} />}
-            className="!bg-blue-600 hover:!bg-blue-700 !text-white !border-blue-600"
-            onClick={() => setShowImportModal(true)}>
-            {tImport('button')}
-          </Button>
+          {isSuperAdmin && (
+            <Button variant="secondary" size="sm" icon={<Upload size={13} />}
+              className="!bg-blue-600 hover:!bg-blue-700 !text-white !border-blue-600"
+              onClick={() => setShowImportModal(true)}>
+              {tImport('button')}
+            </Button>
+          )}
           {canCrawl && (
             <Link href="/affiliate/actions">
               <Button size="sm">{t('crawlAdd')}</Button>

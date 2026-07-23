@@ -55,7 +55,9 @@ export default function Sidebar() {
       label: t('affiliatePrograms'),
       items: [
         { href: '/affiliate',           icon: BarChart2,    label: t('allPrograms'), subject: S.AFFILIATE, action: A.READ, exact: true },
-        { href: '/affiliate/dev',       icon: Code2,        label: t('devView'), subject: S.AFFILIATE, action: A.READ },
+        ...(perms.includes('all:manage')
+          ? [{ href: '/affiliate/dev', icon: Code2, label: t('devView'), subject: S.AFFILIATE, action: A.READ }]
+          : []),
         ...(llmEnabled
           ? [{ href: '/affiliate/llm-audit', icon: FlaskConical, label: t('llmAudit'), subject: S.AFFILIATE, action: A.READ }]
           : []),
