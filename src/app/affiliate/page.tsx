@@ -541,12 +541,70 @@ function buildMonthGrid(monthDate: Date): (Date | null)[] {
   return cells;
 }
 
+// ─── Plain sortable header (DataTables-style) ────────────────────────────────
+// A stacked-arrow (▲▼) sort indicator that's always visible, not just on
+// hover/active — same convention as datatables.net's own sorting column
+// headers, where both directions are always shown and the active one is
+// highlighted. Click anywhere on the header to cycle asc → desc → unsorted.
+// Used for columns that sort but don't also need a filter popup (e.g. Domain,
+// once its own search box moved back out to the shared Filters bar).
+function SortableHeader({
+  label,
+  sortKey,
+  currentOrderBy,
+  currentOrder,
+  onSort,
+  onClearSort,
+}: {
+  label: string;
+  sortKey: AffiliateListParams['orderBy'];
+  currentOrderBy?: AffiliateListParams['orderBy'];
+  currentOrder?: 'asc' | 'desc';
+  onSort: (order: 'asc' | 'desc') => void;
+  onClearSort: () => void;
+}) {
+  const isSorted = currentOrderBy === sortKey;
+  const isAsc = isSorted && currentOrder === 'asc';
+  const isDesc = isSorted && currentOrder === 'desc';
+
+  const cycle = () => {
+    if (isAsc) onSort('desc');
+    else if (isDesc) onClearSort();
+    else onSort('asc');
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      className={clsx(
+        'inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap hover:text-[var(--text)]',
+        isSorted ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]',
+      )}
+      title={isAsc ? 'Sorted ascending — click for descending' : isDesc ? 'Sorted descending — click to clear' : 'Click to sort ascending'}
+    >
+      {label}
+      <span className="inline-flex flex-col leading-none">
+        <ChevronUp size={13} strokeWidth={2.5} className={isAsc ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] opacity-50'} />
+        <ChevronDown size={13} strokeWidth={2.5} className={clsx('-mt-1', isDesc ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] opacity-50')} />
+      </span>
+    </button>
+  );
+}
+
 // ─── Per-column header filter/sort popup ─────────────────────────────────────
-// Replaces the old single shared "Filters" box: each sortable/filterable
-// column gets its own button in the table header that opens a small popup
-// with ASC/DESC sort buttons plus that column's own filter control (passed
-// as `children` — a text search, a dropdown, or a min/max range, depending
-// on the column's data type).
+// Replaces the old single shared "Filters" box. Each sortable/filterable
+// column header now shows TWO clearly separate controls, not one overloaded
+// button:
+//   1. The label + sort arrows (SortableHeader) — click directly cycles
+//      asc → desc → unsorted, no popup involved.
+//   2. A distinct filter icon button next to it — opens a small popup with
+//      that column's own filter control (passed as `children`: a dropdown or
+//      a min/max range). Only rendered when the column actually has a filter.
+// Mixing sort and filter into one button/icon made it unclear which click did
+// what and made the controls too small to read/hit — this split mirrors how
+// datatables.net keeps its sort arrows in the header text and any filter UI
+// in a separate row/control.
 function ColumnHeaderFilter({
   label,
   sortKey,
@@ -571,7 +629,6 @@ function ColumnHeaderFilter({
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const isSorted = !!sortKey && currentOrderBy === sortKey;
 
   useEffect(() => {
     if (!open) return;
@@ -595,55 +652,35 @@ function ColumnHeaderFilter({
   }, [open]);
 
   return (
-    <div className="relative inline-block" ref={containerRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={clsx(
-          'inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap hover:text-[var(--text)]',
-          isSorted || active ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]',
-        )}
-      >
-        {label}
-        {isSorted ? (
-          currentOrder === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />
-        ) : (
-          <SlidersHorizontal size={10} className="opacity-50" />
-        )}
-        {active && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />}
-      </button>
+    <div className="flex items-center gap-1" ref={containerRef}>
+      {sortKey && onSort && onClearSort ? (
+        <SortableHeader label={label} sortKey={sortKey} currentOrderBy={currentOrderBy} currentOrder={currentOrder} onSort={onSort} onClearSort={onClearSort} />
+      ) : (
+        <span className="text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{label}</span>
+      )}
 
-      {open && (
-        <div className="absolute z-50 top-full left-0 mt-1 min-w-[200px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 space-y-3">
-          {sortKey && onSort && (
-            <div className="flex gap-1.5">
-              <button
-                type="button"
-                onClick={() => (isSorted && currentOrder === 'asc' && onClearSort ? onClearSort() : onSort('asc'))}
-                className={clsx(
-                  'flex-1 inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs',
-                  isSorted && currentOrder === 'asc'
-                    ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                    : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50',
-                )}
-              >
-                <ChevronUp size={12} /> Asc
-              </button>
-              <button
-                type="button"
-                onClick={() => (isSorted && currentOrder === 'desc' && onClearSort ? onClearSort() : onSort('desc'))}
-                className={clsx(
-                  'flex-1 inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs',
-                  isSorted && currentOrder === 'desc'
-                    ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                    : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50',
-                )}
-              >
-                <ChevronDown size={12} /> Desc
-              </button>
+      {children && (
+        <div className="relative inline-block">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            title={`Filter ${label}`}
+            className={clsx(
+              'inline-flex items-center justify-center rounded-md border p-1 transition-colors',
+              active
+                ? 'border-[var(--accent)]/50 bg-[var(--accent)]/10 text-[var(--accent)]'
+                : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]',
+            )}
+          >
+            <SlidersHorizontal size={13} />
+            {active && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />}
+          </button>
+
+          {open && (
+            <div className="absolute z-50 top-full left-0 mt-1 min-w-[200px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3">
+              {children}
             </div>
           )}
-          {children}
         </div>
       )}
     </div>
@@ -1073,7 +1110,7 @@ export default function AffiliatePage() {
   const [verifyModal, setVerifyModal] = useState<string | null>(null);
   const [signupModal, setSignupModal] = useState<string | null>(null);
   const [params, setParams] = useState<AffiliateListParams>({ page: 1, limit: 50, orderBy: 'crawledAt', order: 'desc' });
-  const [search, setSearch] = useState('');
+  const [domainSearch, setDomainSearch] = useState('');
   const [commissionFilter, setCommissionFilter] = useState('');
   const [scoreFilter, setScoreFilter] = useState('');
   const [signupFilters, setSignupFilters] = useState<Set<SignupFilterKey>>(new Set());
@@ -1142,7 +1179,7 @@ export default function AffiliatePage() {
   }, []);
 
   const applyParams = (next: AffiliateListParams) => { setParams(next); fetchData(next); };
-  const handleSearch = () => applyParams({ ...params, page: 1, domain: search || undefined });
+  const handleDomainSearch = () => applyParams({ ...params, page: 1, domain: domainSearch || undefined });
 
   const handleDelete = async (domain: string) => {
     if (!confirm(t('deleteConfirm', { domain }))) return;
@@ -1394,10 +1431,17 @@ export default function AffiliatePage() {
         </span>
       </div>
 
-      {/* Filters that don't map to a specific column (search/type/commission/cookie/
+      {/* Filters that don't map to a specific column (type/commission/cookie/
           traffic/signup moved into their column headers — see ColumnHeaderFilter) */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Input placeholder={t('filters.searchPlaceholder')} value={domainSearch}
+              onChange={(e) => setDomainSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleDomainSearch()}
+              className="w-full sm:w-[180px] min-w-0" />
+            <Button size="sm" icon={<Search size={13} />} onClick={handleDomainSearch} className="shrink-0">{tc('search')}</Button>
+          </div>
           <Select label={t('filters.score')}
             value={scoreFilter}
             onValueChange={(v) => {
@@ -1467,34 +1511,32 @@ export default function AffiliatePage() {
         </div>
       )}
 
-      {/* Table */}
+      {/* Table — thead is sticky (stays visible while scrolling the tbody
+          vertically) and the checkbox+Domain columns are sticky left (stay
+          visible while scrolling horizontally through the other 11 columns),
+          same behavior as DataTables' FixedHeader/FixedColumns extensions.
+          The z-index stack matters: the sticky-left cells need to sit above
+          normal cells while scrolling horizontally (z-10), and the sticky
+          Domain header cell needs to sit above BOTH normal header cells AND
+          the sticky-left body cells while scrolling vertically (z-20). */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[75vh]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--surface-2)]">
-                <th className="px-3 py-3 w-8">
+                <th className="sticky top-0 left-0 z-20 px-3 py-3 w-8 bg-[var(--surface-2)]">
                   <button onClick={toggleAll} className="text-[var(--text-muted)] hover:text-[var(--text)]">
                     {allSelected ? <CheckSquare size={14} className="text-[var(--accent)]" /> :
                       someSelected ? <Minus size={14} /> : <Square size={14} />}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
-                  <ColumnHeaderFilter label={t('table.domain')} sortKey="domain" currentOrderBy={params.orderBy} currentOrder={params.order}
+                <th className="sticky top-0 left-8 z-20 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]">
+                  <SortableHeader label={t('table.domain')} sortKey="domain" currentOrderBy={params.orderBy} currentOrder={params.order}
                     onSort={(order) => applyParams({ ...params, order, orderBy: 'domain' })}
-                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
-                    active={!!search}>
-                    <div className="flex gap-1.5">
-                      <Input placeholder={t('filters.searchPlaceholder')} value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                        className="text-xs h-7 min-w-0" />
-                      <Button size="sm" icon={<Search size={12} />} onClick={handleSearch} className="shrink-0 !h-7 !px-2" />
-                    </div>
-                  </ColumnHeaderFilter>
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })} />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{t('table.program')}</th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap bg-[var(--surface-2)]">{t('table.programName')}</th>
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label={t('table.commission')} active={!!commissionFilter}>
                     <Select label={t('filters.commissionRate')}
                       value={commissionFilter}
@@ -1505,7 +1547,7 @@ export default function AffiliatePage() {
                       options={COMMISSION_FILTER_OPTIONS} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label={t('table.type')} active={!!params.commissionType}>
                     <Select label={t('filters.type')}
                       value={params.commissionType ?? ''}
@@ -1513,7 +1555,7 @@ export default function AffiliatePage() {
                       options={TYPE_OPTIONS} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label={t('table.cookie')} sortKey="cookieDays" currentOrderBy={params.orderBy} currentOrder={params.order}
                     onSort={(order) => applyParams({ ...params, order, orderBy: 'cookieDays' })}
                     onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
@@ -1522,7 +1564,7 @@ export default function AffiliatePage() {
                       onChange={(cookieDaysMin, cookieDaysMax) => applyParams({ ...params, page: 1, cookieDaysMin, cookieDaysMax })} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label="Traffic" sortKey="monthlyVisits" currentOrderBy={params.orderBy} currentOrder={params.order}
                     onSort={(order) => applyParams({ ...params, order, orderBy: 'monthlyVisits' })}
                     onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
@@ -1531,7 +1573,7 @@ export default function AffiliatePage() {
                       onChange={(monthlyVisitsMin, monthlyVisitsMax) => applyParams({ ...params, page: 1, monthlyVisitsMin, monthlyVisitsMax })} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label="Time on Site" sortKey="timeOnSite" currentOrderBy={params.orderBy} currentOrder={params.order}
                     onSort={(order) => applyParams({ ...params, order, orderBy: 'timeOnSite' })}
                     onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
@@ -1540,7 +1582,7 @@ export default function AffiliatePage() {
                       onChange={(timeOnSiteMin, timeOnSiteMax) => applyParams({ ...params, page: 1, timeOnSiteMin, timeOnSiteMax })} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label="Pages/Visit" sortKey="pagesPerVisit" currentOrderBy={params.orderBy} currentOrder={params.order}
                     onSort={(order) => applyParams({ ...params, order, orderBy: 'pagesPerVisit' })}
                     onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
@@ -1549,7 +1591,7 @@ export default function AffiliatePage() {
                       onChange={(pagesPerVisitMin, pagesPerVisitMax) => applyParams({ ...params, page: 1, pagesPerVisitMin, pagesPerVisitMax })} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label="Bounce Rate" sortKey="bounceRate" currentOrderBy={params.orderBy} currentOrder={params.order}
                     onSort={(order) => applyParams({ ...params, order, orderBy: 'bounceRate' })}
                     onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
@@ -1558,7 +1600,7 @@ export default function AffiliatePage() {
                       onChange={(bounceRateMin, bounceRateMax) => applyParams({ ...params, page: 1, bounceRateMin, bounceRateMax })} />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left whitespace-nowrap">
+                <th className="sticky top-0 z-10 px-4 py-3 text-left whitespace-nowrap bg-[var(--surface-2)]">
                   <ColumnHeaderFilter label={t('table.signedUp')} active={signupFilters.size > 0}>
                     <SignupFilterPicker
                       active={signupFilters}
@@ -1575,8 +1617,8 @@ export default function AffiliatePage() {
                     />
                   </ColumnHeaderFilter>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{t('table.verify')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap"></th>
+                <th className="sticky top-0 z-10 px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap bg-[var(--surface-2)]">{t('table.verify')}</th>
+                <th className="sticky top-0 z-10 px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap bg-[var(--surface-2)]"></th>
               </tr>
             </thead>
             <tbody>
@@ -1595,12 +1637,18 @@ export default function AffiliatePage() {
                         scoreRowBorder(item.affiliateScore),
                         isSelected ? 'bg-indigo-950/30' : 'hover:bg-[var(--surface-2)]',
                       )}>
-                      <td className="px-3 py-3">
+                      <td className={clsx(
+                        'sticky left-0 z-10 px-3 py-3',
+                        isSelected ? 'bg-indigo-950' : 'bg-[var(--surface)] group-hover:bg-[var(--surface-2)]',
+                      )}>
                         <button onClick={() => toggleOne(item.domain)} className="text-[var(--text-muted)] hover:text-[var(--accent)]">
                           {isSelected ? <CheckSquare size={14} className="text-[var(--accent)]" /> : <Square size={14} />}
                         </button>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs max-w-[180px]">
+                      <td className={clsx(
+                        'sticky left-8 z-10 px-4 py-3 font-mono text-xs max-w-[180px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]',
+                        isSelected ? 'bg-indigo-950' : 'bg-[var(--surface)] group-hover:bg-[var(--surface-2)]',
+                      )}>
                         <div className="flex items-center gap-1.5 min-w-0">
                           <Link href={`/affiliate/${encodeURIComponent(item.domain)}`}
                             className="text-indigo-400 hover:underline truncate">

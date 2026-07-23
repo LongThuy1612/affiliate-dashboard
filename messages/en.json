@@ -191,6 +191,7 @@
       "id": "ID",
       "domain": "Domain",
       "program": "Program",
+      "programName": "Program Name",
       "commission": "Commission",
       "type": "Type",
       "cookie": "Cookie",

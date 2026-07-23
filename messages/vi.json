@@ -191,6 +191,7 @@
       "id": "STT",
       "domain": "Domain",
       "program": "Chương trình",
+      "programName": "Tên chương trình",
       "commission": "Hoa hồng",
       "type": "Loại",
       "cookie": "Cookie",

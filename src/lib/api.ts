@@ -466,6 +466,8 @@ export interface AffiliateListParams {
   commissionType?: CommissionType;
   minConfidence?: number;
   domain?: string;
+  /** Global search — matches domain, program name, or commission rate (any one). */
+  search?: string;
   orderBy?: 'confidence' | 'crawledAt' | 'updatedAt' | 'domain' | 'affiliateScore' | 'cookieDays' | 'rank' | 'monthlyVisits' | 'bounceRate' | 'timeOnSite' | 'pagesPerVisit';
   order?: 'asc' | 'desc';
   scoreMax?: number;
