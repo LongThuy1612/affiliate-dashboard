@@ -12,7 +12,7 @@ import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
 import { canAny } from '@/lib/permissions';
 import { PermissionSubject as S, PermissionAction as A } from '@/constants/permissions';
-import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet } from 'lucide-react';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import clsx from 'clsx';
 
@@ -541,6 +541,162 @@ function buildMonthGrid(monthDate: Date): (Date | null)[] {
   return cells;
 }
 
+// ─── Per-column header filter/sort popup ─────────────────────────────────────
+// Replaces the old single shared "Filters" box: each sortable/filterable
+// column gets its own button in the table header that opens a small popup
+// with ASC/DESC sort buttons plus that column's own filter control (passed
+// as `children` — a text search, a dropdown, or a min/max range, depending
+// on the column's data type).
+function ColumnHeaderFilter({
+  label,
+  sortKey,
+  currentOrderBy,
+  currentOrder,
+  onSort,
+  onClearSort,
+  active,
+  children,
+}: {
+  label: string;
+  /** Omit for columns with a filter but no backend sort support. */
+  sortKey?: AffiliateListParams['orderBy'];
+  currentOrderBy?: AffiliateListParams['orderBy'];
+  currentOrder?: 'asc' | 'desc';
+  onSort?: (order: 'asc' | 'desc') => void;
+  /** Resets sort back to the default (crawledAt desc) — only rendered while this column is the active sort. */
+  onClearSort?: () => void;
+  /** True when this column's filter is currently narrowing the result set — shows a dot indicator. */
+  active?: boolean;
+  children?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isSorted = !!sortKey && currentOrderBy === sortKey;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (containerRef.current && containerRef.current.contains(target)) return;
+      // A <Select> (or DateRangePicker's calendar) inside this popup renders its
+      // OWN dropdown/options through a React portal — appended to document.body,
+      // outside containerRef's DOM subtree. Without this check, picking an option
+      // (e.g. Commission/Type's Select) fires this mousedown handler first (the
+      // click lands on the portaled content, not inside containerRef), closing —
+      // and unmounting — this popup and its children BEFORE Radix's own
+      // click/pointerup handler gets to run onValueChange, so the selection
+      // never took effect. Confirmed live: Commission/Type filters appeared to
+      // do nothing when picked from inside a column header popup.
+      if ((target as Element).closest?.('[data-radix-popper-content-wrapper]')) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={clsx(
+          'inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap hover:text-[var(--text)]',
+          isSorted || active ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]',
+        )}
+      >
+        {label}
+        {isSorted ? (
+          currentOrder === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />
+        ) : (
+          <SlidersHorizontal size={10} className="opacity-50" />
+        )}
+        {active && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]" />}
+      </button>
+
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 min-w-[200px] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl p-3 space-y-3">
+          {sortKey && onSort && (
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => (isSorted && currentOrder === 'asc' && onClearSort ? onClearSort() : onSort('asc'))}
+                className={clsx(
+                  'flex-1 inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs',
+                  isSorted && currentOrder === 'asc'
+                    ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                    : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50',
+                )}
+              >
+                <ChevronUp size={12} /> Asc
+              </button>
+              <button
+                type="button"
+                onClick={() => (isSorted && currentOrder === 'desc' && onClearSort ? onClearSort() : onSort('desc'))}
+                className={clsx(
+                  'flex-1 inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs',
+                  isSorted && currentOrder === 'desc'
+                    ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                    : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--accent)]/50',
+                )}
+              >
+                <ChevronDown size={12} /> Desc
+              </button>
+            </div>
+          )}
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Simple numeric min/max range filter, used inside a ColumnHeaderFilter popup. */
+function RangeFilter({
+  min, max, onChange, placeholder = 'Value',
+}: {
+  min?: number;
+  max?: number;
+  onChange: (min: number | undefined, max: number | undefined) => void;
+  placeholder?: string;
+}) {
+  const [localMin, setLocalMin] = useState(min?.toString() ?? '');
+  const [localMax, setLocalMax] = useState(max?.toString() ?? '');
+
+  useEffect(() => { setLocalMin(min?.toString() ?? ''); }, [min]);
+  useEffect(() => { setLocalMax(max?.toString() ?? ''); }, [max]);
+
+  const commit = () => {
+    onChange(
+      localMin.trim() === '' ? undefined : Number(localMin),
+      localMax.trim() === '' ? undefined : Number(localMax),
+    );
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="number"
+        placeholder={`Min ${placeholder}`}
+        value={localMin}
+        onChange={(e) => setLocalMin(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+        className="w-full min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--text)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+      />
+      <span className="text-[var(--text-muted)] text-xs shrink-0">–</span>
+      <input
+        type="number"
+        placeholder={`Max ${placeholder}`}
+        value={localMax}
+        onChange={(e) => setLocalMax(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && commit()}
+        className="w-full min-w-0 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--text)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+      />
+    </div>
+  );
+}
+
 const SIGNUP_FILTER_KEY_LIST = ['signedUpByMe', 'notSignedUpByMe', 'anyoneSignedUp', 'noneSignedUp'] as const;
 type SignupFilterKey = typeof SIGNUP_FILTER_KEY_LIST[number];
 
@@ -828,13 +984,6 @@ function formatVisits(raw: string | null): string {
   return String(n);
 }
 
-function formatSeconds(sec: number | null): string {
-  if (sec == null) return '—';
-  const m = Math.floor(sec / 60);
-  const s = Math.round(sec % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
 function TrafficCell({ traffic }: { traffic: DomainTraffic | null | undefined }) {
   if (!traffic || traffic.lastFetchStatus !== 'success') {
     return <span className="text-xs text-[var(--text-muted)]">—</span>;
@@ -856,6 +1005,30 @@ function TrafficCell({ traffic }: { traffic: DomainTraffic | null | undefined })
       )}
     </div>
   );
+}
+
+function BounceRateCell({ traffic }: { traffic: DomainTraffic | null | undefined }) {
+  if (!traffic || traffic.lastFetchStatus !== 'success' || traffic.bounceRate == null) {
+    return <span className="text-xs text-[var(--text-muted)]">—</span>;
+  }
+  // High bounce = mostly single-page, low-intent traffic — flag it red as a
+  // quick visual cue the same way TrafficCell's growth arrow does.
+  const color = traffic.bounceRate >= 70 ? 'text-red-300' : traffic.bounceRate <= 40 ? 'text-green-300' : 'text-[var(--text)]';
+  return <span className={`font-mono text-xs ${color}`}>{traffic.bounceRate.toFixed(1)}%</span>;
+}
+
+function PagesPerVisitCell({ traffic }: { traffic: DomainTraffic | null | undefined }) {
+  if (!traffic || traffic.lastFetchStatus !== 'success' || traffic.pagesPerVisit == null) {
+    return <span className="text-xs text-[var(--text-muted)]">—</span>;
+  }
+  return <span className="font-mono text-xs text-[var(--text)]">{traffic.pagesPerVisit.toFixed(1)}</span>;
+}
+
+function formatSeconds(sec: number | null): string {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
 function TimeOnSiteCell({ traffic }: { traffic: DomainTraffic | null | undefined }) {
@@ -1221,30 +1394,10 @@ export default function AffiliatePage() {
         </span>
       </div>
 
-      {/* Filters */}
+      {/* Filters that don't map to a specific column (search/type/commission/cookie/
+          traffic/signup moved into their column headers — see ColumnHeaderFilter) */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Input placeholder={t('filters.searchPlaceholder')} value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="w-full sm:w-[180px] min-w-0" />
-            <Button size="sm" icon={<Search size={13} />} onClick={handleSearch} className="shrink-0">{tc('search')}</Button>
-          </div>
-          <Select label={t('filters.type')}
-            value={params.commissionType ?? ''}
-            onValueChange={(v) => applyParams({ ...params, page: 1, commissionType: (v || undefined) as CommissionType | undefined })}
-            options={TYPE_OPTIONS} />
-          <Select label={t('filters.commissionRate')}
-            value={commissionFilter}
-            onValueChange={(v) => {
-              setCommissionFilter(v);
-              applyParams({
-                ...params, page: 1,
-                hasCommission: v === 'has' ? true : v === 'none' ? false : undefined,
-              });
-            }}
-            options={COMMISSION_FILTER_OPTIONS} />
           <Select label={t('filters.score')}
             value={scoreFilter}
             onValueChange={(v) => {
@@ -1256,19 +1409,9 @@ export default function AffiliatePage() {
               });
             }}
             options={SCORE_FILTER_OPTIONS} />
-          <SignupFilterPicker
-            active={signupFilters}
-            onChange={(next) => {
-              setSignupFilters(next);
-              applyParams({
-                ...params, page: 1,
-                signedUpByMe: next.has('signedUpByMe') ? true : undefined,
-                notSignedUpByMe: next.has('notSignedUpByMe') ? true : undefined,
-                anyoneSignedUp: next.has('anyoneSignedUp') ? true : undefined,
-                noneSignedUp: next.has('noneSignedUp') ? true : undefined,
-              });
-            }}
-          />
+          {/* crawledAt/updatedAt/confidence/affiliateScore have no dedicated column
+              header (unlike domain/cookieDays/traffic fields) — kept here as the
+              only way to sort by them. */}
           <Select label={t('filters.sortBy')}
             value={params.orderBy}
             onValueChange={(v) => applyParams({ ...params, page: 1, orderBy: v as AffiliateListParams['orderBy'] })}
@@ -1336,16 +1479,111 @@ export default function AffiliatePage() {
                       someSelected ? <Minus size={14} /> : <Square size={14} />}
                   </button>
                 </th>
-                {[t('table.domain'), t('table.program'), t('table.commission'), t('table.type'), t('table.cookie'), 'Traffic', 'Time on Site', t('table.signedUp'), t('table.verify'), ''].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{h}</th>
-                ))}
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label={t('table.domain')} sortKey="domain" currentOrderBy={params.orderBy} currentOrder={params.order}
+                    onSort={(order) => applyParams({ ...params, order, orderBy: 'domain' })}
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
+                    active={!!search}>
+                    <div className="flex gap-1.5">
+                      <Input placeholder={t('filters.searchPlaceholder')} value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                        className="text-xs h-7 min-w-0" />
+                      <Button size="sm" icon={<Search size={12} />} onClick={handleSearch} className="shrink-0 !h-7 !px-2" />
+                    </div>
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{t('table.program')}</th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label={t('table.commission')} active={!!commissionFilter}>
+                    <Select label={t('filters.commissionRate')}
+                      value={commissionFilter}
+                      onValueChange={(v) => {
+                        setCommissionFilter(v);
+                        applyParams({ ...params, page: 1, hasCommission: v === 'has' ? true : v === 'none' ? false : undefined });
+                      }}
+                      options={COMMISSION_FILTER_OPTIONS} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label={t('table.type')} active={!!params.commissionType}>
+                    <Select label={t('filters.type')}
+                      value={params.commissionType ?? ''}
+                      onValueChange={(v) => applyParams({ ...params, page: 1, commissionType: (v || undefined) as CommissionType | undefined })}
+                      options={TYPE_OPTIONS} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label={t('table.cookie')} sortKey="cookieDays" currentOrderBy={params.orderBy} currentOrder={params.order}
+                    onSort={(order) => applyParams({ ...params, order, orderBy: 'cookieDays' })}
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
+                    active={params.cookieDaysMin !== undefined || params.cookieDaysMax !== undefined}>
+                    <RangeFilter placeholder="days" min={params.cookieDaysMin} max={params.cookieDaysMax}
+                      onChange={(cookieDaysMin, cookieDaysMax) => applyParams({ ...params, page: 1, cookieDaysMin, cookieDaysMax })} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label="Traffic" sortKey="monthlyVisits" currentOrderBy={params.orderBy} currentOrder={params.order}
+                    onSort={(order) => applyParams({ ...params, order, orderBy: 'monthlyVisits' })}
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
+                    active={params.monthlyVisitsMin !== undefined || params.monthlyVisitsMax !== undefined}>
+                    <RangeFilter placeholder="visits" min={params.monthlyVisitsMin} max={params.monthlyVisitsMax}
+                      onChange={(monthlyVisitsMin, monthlyVisitsMax) => applyParams({ ...params, page: 1, monthlyVisitsMin, monthlyVisitsMax })} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label="Time on Site" sortKey="timeOnSite" currentOrderBy={params.orderBy} currentOrder={params.order}
+                    onSort={(order) => applyParams({ ...params, order, orderBy: 'timeOnSite' })}
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
+                    active={params.timeOnSiteMin !== undefined || params.timeOnSiteMax !== undefined}>
+                    <RangeFilter placeholder="sec" min={params.timeOnSiteMin} max={params.timeOnSiteMax}
+                      onChange={(timeOnSiteMin, timeOnSiteMax) => applyParams({ ...params, page: 1, timeOnSiteMin, timeOnSiteMax })} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label="Pages/Visit" sortKey="pagesPerVisit" currentOrderBy={params.orderBy} currentOrder={params.order}
+                    onSort={(order) => applyParams({ ...params, order, orderBy: 'pagesPerVisit' })}
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
+                    active={params.pagesPerVisitMin !== undefined || params.pagesPerVisitMax !== undefined}>
+                    <RangeFilter placeholder="pages" min={params.pagesPerVisitMin} max={params.pagesPerVisitMax}
+                      onChange={(pagesPerVisitMin, pagesPerVisitMax) => applyParams({ ...params, page: 1, pagesPerVisitMin, pagesPerVisitMax })} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label="Bounce Rate" sortKey="bounceRate" currentOrderBy={params.orderBy} currentOrder={params.order}
+                    onSort={(order) => applyParams({ ...params, order, orderBy: 'bounceRate' })}
+                    onClearSort={() => applyParams({ ...params, orderBy: 'crawledAt', order: 'desc' })}
+                    active={params.bounceRateMin !== undefined || params.bounceRateMax !== undefined}>
+                    <RangeFilter placeholder="%" min={params.bounceRateMin} max={params.bounceRateMax}
+                      onChange={(bounceRateMin, bounceRateMax) => applyParams({ ...params, page: 1, bounceRateMin, bounceRateMax })} />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left whitespace-nowrap">
+                  <ColumnHeaderFilter label={t('table.signedUp')} active={signupFilters.size > 0}>
+                    <SignupFilterPicker
+                      active={signupFilters}
+                      onChange={(next) => {
+                        setSignupFilters(next);
+                        applyParams({
+                          ...params, page: 1,
+                          signedUpByMe: next.has('signedUpByMe') ? true : undefined,
+                          notSignedUpByMe: next.has('notSignedUpByMe') ? true : undefined,
+                          anyoneSignedUp: next.has('anyoneSignedUp') ? true : undefined,
+                          noneSignedUp: next.has('noneSignedUp') ? true : undefined,
+                        });
+                      }}
+                    />
+                  </ColumnHeaderFilter>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">{t('table.verify')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap"></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
+                <tr><td colSpan={13} className="text-center py-12 text-[var(--text-muted)]">{tc('loading')}</td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={11} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
+                <tr><td colSpan={13} className="text-center py-12 text-[var(--text-muted)]">{t('noResults')}</td></tr>
               ) : (
                 filteredItems.map((item) => {
                   const isSelected = selected.has(item.domain);
@@ -1390,6 +1628,8 @@ export default function AffiliatePage() {
                       <td className="px-4 py-3"><CookieCell days={item.cookieDays} /></td>
                       <td className="px-4 py-3"><TrafficCell traffic={item.domainTraffic} /></td>
                       <td className="px-4 py-3"><TimeOnSiteCell traffic={item.domainTraffic} /></td>
+                      <td className="px-4 py-3"><PagesPerVisitCell traffic={item.domainTraffic} /></td>
+                      <td className="px-4 py-3"><BounceRateCell traffic={item.domainTraffic} /></td>
                       <td className="px-4 py-3">
                         <SignupCell signedUp={!!item.signedUpByMe} onClick={() => setSignupModal(item.domain)} />
                       </td>

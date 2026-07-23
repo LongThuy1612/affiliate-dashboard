@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { affiliateApi, AffiliateProgram, AffiliateSubPage, DomainTrafficFull, DomainTrafficGeography, verificationApi, DomainVerification } from '@/lib/api';
+import { affiliateApi, AffiliateProgram, AffiliateSubPage, DomainTrafficFull, DomainTrafficGeography, DomainTrafficKeyword, verificationApi, DomainVerification } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toaster';
@@ -185,9 +185,11 @@ function formatSeconds(sec: number | null): string {
 const PIE_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#a855f7'];
 
 function TrafficSourcesChart({ sources }: { sources: Record<string, number> }) {
+  // Backend's formattedData.trafficSources already returns 0-100 percentages
+  // (e.g. { Direct: 65.75, Referral: 17.94 }), not 0-1 fractions — no *100 here.
   const data = Object.entries(sources)
     .filter(([, v]) => typeof v === 'number' && v > 0)
-    .map(([name, value]) => ({ name, value: Math.round(value * 1000) / 10 }))
+    .map(([name, value]) => ({ name, value: Math.round(value * 10) / 10 }))
     .sort((a, b) => b.value - a.value);
   if (data.length === 0) return <p className="text-xs text-[var(--text-muted)] px-5 py-4">No traffic source data.</p>;
   return (
@@ -208,6 +210,24 @@ function TrafficSourcesChart({ sources }: { sources: Record<string, number> }) {
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
             <span className="text-[var(--text)] capitalize flex-1">{d.name.replace(/([A-Z])/g, ' $1').trim()}</span>
             <span className="text-[var(--text-muted)] tabular-nums">{d.value}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KeywordList({ title, keywords }: { title: string; keywords: DomainTrafficKeyword[] | null | undefined }) {
+  if (!keywords || keywords.length === 0) return null;
+  const top = [...keywords].sort((a, b) => b.volume - a.volume).slice(0, 10);
+  return (
+    <div>
+      <p className="text-xs font-medium text-[var(--text-muted)] mb-2">{title}</p>
+      <div className="space-y-1">
+        {top.map((k) => (
+          <div key={k.keyword} className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-[var(--text)] truncate">{k.keyword}</span>
+            <span className="text-[var(--text-muted)] font-mono shrink-0">{formatVisits(k.volume)}</span>
           </div>
         ))}
       </div>
@@ -351,6 +371,14 @@ function SimilarWebSection({ traffic }: { traffic: DomainTrafficFull | null }) {
         </div>
       )}
 
+      {/* Top keywords — organic vs paid search terms driving traffic */}
+      {((traffic.organicKeywords?.length ?? 0) > 0 || (traffic.paidKeywords?.length ?? 0) > 0) && (
+        <div className="border-b border-[var(--border)] px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <KeywordList title="Top Organic Keywords" keywords={traffic.organicKeywords} />
+          <KeywordList title="Top Paid Keywords" keywords={traffic.paidKeywords} />
+        </div>
+      )}
+
       {/* Engagement metrics — from rawData.engagement, deeper than the top-level columns */}
       {(() => {
         const eng = traffic.rawData?.engagement?.Data?.[0];
@@ -392,13 +420,9 @@ function SimilarWebSection({ traffic }: { traffic: DomainTrafficFull | null }) {
       <dl className="px-5 py-3">
         <Row alwaysShow label="Category" value={traffic.category} />
         <Row alwaysShow label="Category Rank" value={traffic.rawData?.categoryRanking != null ? `#${traffic.rawData.categoryRanking.toLocaleString()}` : null} />
-        <Row alwaysShow label="Company Size" value={traffic.rawData?.employeeRange ?? (companyInfo.employeeRange as string | undefined) ?? null} />
+        <Row alwaysShow label="Company Size" value={companyInfo.employeeRange ?? null} />
+        <Row alwaysShow label="Founded" value={companyInfo.yearFounded ?? null} />
         <Row alwaysShow label="Description" value={traffic.description} />
-        {Object.entries(companyInfo)
-          .filter(([k]) => k !== 'employeeRange')
-          .map(([k, v]) => (
-            <Row key={k} label={k.replace(/([A-Z])/g, ' $1').trim()} value={String(v)} />
-          ))}
       </dl>
     </div>
   );

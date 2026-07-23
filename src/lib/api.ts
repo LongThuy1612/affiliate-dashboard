@@ -171,6 +171,7 @@ export interface DomainTraffic {
   bounceRate: number | null;
   /** Seconds. */
   timeOnSite: number | null;
+  pagesPerVisit: number | null;
   fetchedAt: string | null;
   lastFetchStatus: string | null;
 }
@@ -212,17 +213,24 @@ export interface DomainTrafficRawData {
   };
 }
 
+/** One search keyword entry within organicKeywords/paidKeywords. */
+export interface DomainTrafficKeyword {
+  keyword: string;
+  volume: number;
+}
+
 /** Full SimilarWeb traffic snapshot — returned by GET /affiliate/traffic/:domain. */
 export interface DomainTrafficFull extends DomainTraffic {
   trendData: number[] | null;
   pagesPerVisit: number | null;
   category: string | null;
   description: string | null;
+  /** 0-100 percentage per channel, e.g. { Direct: 65.75, Referral: 17.94 }. */
   trafficSources: Record<string, number> | null;
-  organicKeywords: unknown[] | null;
-  paidKeywords: unknown[] | null;
+  organicKeywords: DomainTrafficKeyword[] | null;
+  paidKeywords: DomainTrafficKeyword[] | null;
   geography: DomainTrafficGeography | null;
-  companyInfo: Record<string, unknown> | null;
+  companyInfo: { yearFounded?: string; employeeRange?: string } | null;
   fetchCount: number;
   cached: boolean;
   lastFetchError: string | null;
@@ -458,7 +466,7 @@ export interface AffiliateListParams {
   commissionType?: CommissionType;
   minConfidence?: number;
   domain?: string;
-  orderBy?: 'confidence' | 'crawledAt' | 'updatedAt' | 'domain' | 'affiliateScore';
+  orderBy?: 'confidence' | 'crawledAt' | 'updatedAt' | 'domain' | 'affiliateScore' | 'cookieDays' | 'rank' | 'monthlyVisits' | 'bounceRate' | 'timeOnSite' | 'pagesPerVisit';
   order?: 'asc' | 'desc';
   scoreMax?: number;
   scoreMin?: number;
@@ -470,6 +478,18 @@ export interface AffiliateListParams {
   notSignedUpByMe?: boolean;
   anyoneSignedUp?: boolean;
   noneSignedUp?: boolean;
+  cookieDaysMin?: number;
+  cookieDaysMax?: number;
+  rankMin?: number;
+  rankMax?: number;
+  monthlyVisitsMin?: number;
+  monthlyVisitsMax?: number;
+  bounceRateMin?: number;
+  bounceRateMax?: number;
+  timeOnSiteMin?: number;
+  timeOnSiteMax?: number;
+  pagesPerVisitMin?: number;
+  pagesPerVisitMax?: number;
 }
 
 // Selectable Excel export columns — must mirror the backend's allowed list exactly
