@@ -294,7 +294,13 @@
       "resultCreated": "{count} created",
       "resultUpdated": "{count} updated",
       "resultErrors": "{count} error(s)",
-      "errorRow": "Row {row} ({domain}): {reason}"
+      "errorRow": "Row {row} ({domain}): {reason}",
+      "unrecognizedColumns": "Unrecognized column(s) ignored: {columns}",
+      "missingColumns": "Missing column(s) — left blank for all rows: {columns}",
+      "confirmTitle": "Please review before importing",
+      "confirmProceed": "{count} row(s) will be imported. Continue anyway?",
+      "confirmCancel": "Cancel",
+      "confirmProceedButton": "Import anyway"
     }
   },
   "affiliateDetail": {

@@ -294,7 +294,13 @@
       "resultCreated": "{count} tạo mới",
       "resultUpdated": "{count} cập nhật",
       "resultErrors": "{count} lỗi",
-      "errorRow": "Dòng {row} ({domain}): {reason}"
+      "errorRow": "Dòng {row} ({domain}): {reason}",
+      "unrecognizedColumns": "Cột không nhận diện được, đã bỏ qua: {columns}",
+      "missingColumns": "Thiếu cột — sẽ để trống ở tất cả các dòng: {columns}",
+      "confirmTitle": "Vui lòng kiểm tra trước khi import",
+      "confirmProceed": "{count} dòng sẽ được import. Vẫn tiếp tục?",
+      "confirmCancel": "Hủy",
+      "confirmProceedButton": "Vẫn Import"
     }
   },
   "affiliateDetail": {

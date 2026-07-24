@@ -26,7 +26,7 @@ function PinnedCard({ item }: { item: Announcement }) {
           <span className="text-xs text-[var(--text-muted)]">{formatDate(item.date)}</span>
         </div>
         <p className="text-sm font-semibold text-[var(--text)]">{item.title}</p>
-        <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">{item.content}</p>
+        <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed whitespace-pre-line">{item.content}</p>
       </div>
     </div>
   );
@@ -41,7 +41,7 @@ function RegularCard({ item }: { item: Announcement }) {
       <div className="px-4 py-3">
         <span className="text-xs text-[var(--text-muted)]">{formatDate(item.date)}</span>
         <p className="text-sm font-medium text-[var(--text)] mt-0.5">{item.title}</p>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{item.content}</p>
+        <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed whitespace-pre-line">{item.content}</p>
       </div>
     </div>
   );

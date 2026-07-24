@@ -453,7 +453,7 @@ export default function AnnouncementsPage() {
                         {item.active  ? <Badge label="Hiển thị" variant="green" /> : <Badge label="Ẩn" variant="slate" />}
                         {item.imageUrl && <ImageIcon size={11} className="text-[var(--text-muted)]" />}
                       </div>
-                      <p className="text-xs text-[var(--text-muted)] line-clamp-2 leading-relaxed">{item.content}</p>
+                      <p className="text-xs text-[var(--text-muted)] line-clamp-2 leading-relaxed whitespace-pre-line">{item.content}</p>
                       <p className="text-[11px] text-[var(--text-muted)] mt-1">{formatDate(item.date)}</p>
                     </div>
 

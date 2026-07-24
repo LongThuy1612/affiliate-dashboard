@@ -1,7 +1,7 @@
 ﻿'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, DomainTraffic, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError, IMPORT_COLUMNS, ImportResult } from '@/lib/api';
+import { affiliateApi, crawlAffiliateApi, verificationApi, AffiliateProgram, AffiliateStats, AffiliateListParams, CommissionType, AffiliateVerification, DomainTraffic, EXPORT_COLUMNS, ExportColumnKey, ExportRowCapError } from '@/lib/api';
 import { StatCard } from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
@@ -12,9 +12,10 @@ import { useToast } from '@/components/ui/Toaster';
 import { useAuth } from '@/context/AuthContext';
 import { canAny } from '@/lib/permissions';
 import { PermissionSubject as S, PermissionAction as A } from '@/constants/permissions';
-import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, ChevronRight, Download, CalendarRange, Upload, FileSpreadsheet, SlidersHorizontal } from 'lucide-react';
+import { RefreshCw, ExternalLink, Trash2, Search, ChevronUp, ChevronDown, ChevronLeft, CheckSquare, Square, Minus, BadgeCheck, Sparkles, RotateCw, TrendingUp, TrendingDown, BarChart2, RefreshCcw, X, ChevronRight, Download, CalendarRange, Upload, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import clsx from 'clsx';
+import ImportModal from '@/components/affiliate/ImportModal';
 
 // ─── Verification components ─────────────────────────────────────────────────
 
@@ -352,164 +353,6 @@ function ExportColumnsModal({
             className="px-4 py-2.5 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--surface-2)] transition-colors disabled:opacity-50"
           >
             {t('cancel')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
-  const t = useTranslations('affiliate.import');
-  const { toast } = useToast();
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const acceptFile = (f: File | undefined) => {
-    if (!f) return;
-    if (!/\.(xlsx|xls)$/i.test(f.name)) {
-      toast(t('invalidFileType'), { type: 'error' });
-      return;
-    }
-    setFile(f);
-    setResult(null);
-  };
-
-  const handleDownloadTemplate = async () => {
-    setDownloadingTemplate(true);
-    try {
-      await affiliateApi.downloadImportTemplate();
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : t('templateFailed'), { type: 'error' });
-    } finally { setDownloadingTemplate(false); }
-  };
-
-  const handleImport = async () => {
-    if (!file) return;
-    setImporting(true);
-    try {
-      const res = await affiliateApi.importXlsx(file);
-      setResult(res);
-      if (res.created > 0 || res.updated > 0) onImported();
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : t('failed'), { type: 'error' });
-    } finally { setImporting(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-      <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[var(--text)]">{t('title')}</h2>
-          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text)]">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 overflow-hidden">
-          <button
-            onClick={() => setRulesOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-amber-300"
-          >
-            <span className="flex items-center gap-1.5">
-              <ChevronDown size={14} className={clsx('transition-transform', !rulesOpen && '-rotate-90')} />
-              {t('rulesTitle')}
-            </span>
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); handleDownloadTemplate(); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleDownloadTemplate(); } }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 px-2.5 py-1 text-xs text-amber-200 hover:bg-amber-500/10 transition-colors"
-            >
-              <Download size={12} />
-              {downloadingTemplate ? '…' : t('downloadTemplate')}
-            </span>
-          </button>
-          {rulesOpen && (
-            <div className="px-4 pb-4 text-xs text-amber-200/90 space-y-1.5">
-              <p>{t('ruleDomain')}</p>
-              <p>{t('ruleOptionalColumns', { columns: IMPORT_COLUMNS.map((c) => c.label).join(', ') })}</p>
-              <p>{t('ruleCommissionType')}</p>
-              <p>{t('ruleCookieDays')}</p>
-              <p>{t('ruleRowCap')}</p>
-              <p className="text-red-400 font-semibold">{t('ruleTextFormat')}</p>
-            </div>
-          )}
-        </div>
-
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); acceptFile(e.dataTransfer.files[0]); }}
-          onClick={() => fileInputRef.current?.click()}
-          className={clsx(
-            'rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors',
-            dragOver ? 'border-[var(--accent)] bg-[var(--accent)]/5' : 'border-[var(--border)] hover:border-[var(--accent)]/50',
-          )}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(e) => acceptFile(e.target.files?.[0])}
-          />
-          {file ? (
-            <div className="flex flex-col items-center gap-1.5">
-              <FileSpreadsheet size={28} className="text-[var(--accent)]" />
-              <p className="text-sm font-medium text-[var(--text)]">{file.name}</p>
-              <p className="text-xs text-[var(--text-muted)]">{t('changeFileHint')}</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-1.5">
-              <Upload size={28} className="text-[var(--text-muted)]" />
-              <p className="text-sm font-medium text-[var(--accent)]">{t('dropHint')}</p>
-              <p className="text-xs text-[var(--text-muted)]">{t('dropSubhint')}</p>
-            </div>
-          )}
-        </div>
-
-        {result && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2">
-            <div className="flex gap-4 text-sm">
-              <span className="text-emerald-400 font-medium">{t('resultCreated', { count: result.created })}</span>
-              <span className="text-sky-400 font-medium">{t('resultUpdated', { count: result.updated })}</span>
-              {result.errors.length > 0 && (
-                <span className="text-red-400 font-medium">{t('resultErrors', { count: result.errors.length })}</span>
-              )}
-            </div>
-            {result.errors.length > 0 && (
-              <div className="max-h-32 overflow-y-auto space-y-1">
-                {result.errors.map((err, i) => (
-                  <p key={i} className="text-xs text-[var(--text-muted)]">
-                    {t('errorRow', { row: err.row, domain: err.domain ?? '—', reason: err.reason })}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={onClose}
-            disabled={importing}
-            className="px-4 py-2.5 rounded-md border border-[var(--border)] text-[var(--text-muted)] text-sm hover:bg-[var(--surface-2)] transition-colors disabled:opacity-50"
-          >
-            {t('close')}
-          </button>
-          <button
-            onClick={handleImport}
-            disabled={!file || importing}
-            className="flex-1 py-2.5 rounded-md bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            {importing ? '…' : t('importButton')}
           </button>
         </div>
       </div>

@@ -537,6 +537,22 @@ export interface ImportResult {
   created: number;
   updated: number;
   errors: ImportRowError[];
+  /** Header cells in the file that didn't match any known column — their data was silently skipped. */
+  unrecognizedHeaders?: string[];
+  /** Known optional columns (from IMPORT_COLUMNS) not present in the file's header row — left blank on every row. */
+  missingHeaders?: string[];
+  /** Set (with an HTTP error status) when e.g. no "domain" column could be found at all. */
+  error?: string;
+}
+
+/** Response shape when importXlsx(file, { dryRun: true }) — nothing was written to the database. */
+export interface ImportDryRunResult {
+  dryRun: true;
+  wouldImport: number;
+  errors: ImportRowError[];
+  unrecognizedHeaders: string[];
+  missingHeaders: string[];
+  error?: string;
 }
 
 // Columns accepted by import — identical to EXPORT_COLUMNS (domain is always required and
@@ -638,12 +654,13 @@ export const affiliateApi = {
     URL.revokeObjectURL(url);
   },
 
-  importXlsx: async (file: File): Promise<ImportResult> => {
+  importXlsx: async (file: File, opts: { dryRun?: boolean } = {}): Promise<ImportResult | ImportDryRunResult> => {
     const token = getAccessToken();
     const form = new FormData();
     form.append('file', file);
 
-    const res = await fetch(`${BASE_URL}/affiliate/import`, {
+    const qs = opts.dryRun ? '?dryRun=true' : '';
+    const res = await fetch(`${BASE_URL}/affiliate/import${qs}`, {
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -654,7 +671,7 @@ export const affiliateApi = {
 
     const body = await res.json().catch(() => ({ error: res.statusText }));
     if (!res.ok) throw new Error(body.error ?? 'Import failed');
-    return body as ImportResult;
+    return body as ImportResult | ImportDryRunResult;
   },
 
   downloadImportTemplate: async (): Promise<void> => {
