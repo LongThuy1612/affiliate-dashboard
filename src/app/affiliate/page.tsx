@@ -1277,50 +1277,54 @@ export default function AffiliatePage() {
       {/* Filters that don't map to a specific column (type/commission/cookie/
           traffic/signup moved into their column headers — see ColumnHeaderFilter) */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-        <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Input placeholder={t('filters.searchPlaceholder')} value={domainSearch}
-              onChange={(e) => setDomainSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleDomainSearch()}
-              className="w-full sm:w-[180px] min-w-0" />
-            <Button size="sm" icon={<Search size={13} />} onClick={handleDomainSearch} className="shrink-0">{tc('search')}</Button>
+        <div className="flex flex-wrap gap-3 items-end justify-between">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Input placeholder={t('filters.searchPlaceholder')} value={domainSearch}
+                onChange={(e) => setDomainSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleDomainSearch()}
+                className="w-full sm:w-[180px] min-w-0" />
+              <Button size="sm" icon={<Search size={13} />} onClick={handleDomainSearch} className="shrink-0">{tc('search')}</Button>
+            </div>
+            <Select label={t('filters.score')}
+              value={scoreFilter}
+              onValueChange={(v) => {
+                setScoreFilter(v);
+                applyParams({
+                  ...params, page: 1,
+                  scoreMin: v && v !== '0-39' ? Number(v) : undefined,
+                  scoreMax: v === '0-39' ? 39 : undefined,
+                });
+              }}
+              options={SCORE_FILTER_OPTIONS} />
+            {/* crawledAt/updatedAt/confidence/affiliateScore have no dedicated column
+                header (unlike domain/cookieDays/traffic fields) — kept here as the
+                only way to sort by them. */}
+            <Select label={t('filters.sortBy')}
+              value={params.orderBy}
+              onValueChange={(v) => applyParams({ ...params, page: 1, orderBy: v as AffiliateListParams['orderBy'] })}
+              options={ORDER_BY_OPTIONS} />
+            <Button variant="ghost" size="sm"
+              icon={params.order === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              onClick={() => applyParams({ ...params, order: params.order === 'asc' ? 'desc' : 'asc' })}>
+              {params.order === 'asc' ? tc('asc') : tc('desc')}
+            </Button>
           </div>
-          <Select label={t('filters.score')}
-            value={scoreFilter}
-            onValueChange={(v) => {
-              setScoreFilter(v);
-              applyParams({
-                ...params, page: 1,
-                scoreMin: v && v !== '0-39' ? Number(v) : undefined,
-                scoreMax: v === '0-39' ? 39 : undefined,
-              });
-            }}
-            options={SCORE_FILTER_OPTIONS} />
-          {/* crawledAt/updatedAt/confidence/affiliateScore have no dedicated column
-              header (unlike domain/cookieDays/traffic fields) — kept here as the
-              only way to sort by them. */}
-          <Select label={t('filters.sortBy')}
-            value={params.orderBy}
-            onValueChange={(v) => applyParams({ ...params, page: 1, orderBy: v as AffiliateListParams['orderBy'] })}
-            options={ORDER_BY_OPTIONS} />
-          <Button variant="ghost" size="sm"
-            icon={params.order === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            onClick={() => applyParams({ ...params, order: params.order === 'asc' ? 'desc' : 'asc' })}>
-            {params.order === 'asc' ? tc('asc') : tc('desc')}
-          </Button>
-          <Select label={t('filters.dateField')}
-            value={params.dateField ?? 'crawledAt'}
-            onValueChange={(v) => applyParams({ ...params, page: 1, dateField: v as AffiliateListParams['dateField'] })}
-            options={DATE_FIELD_OPTIONS} />
-          <DateRangePicker
-            from={params.dateFrom}
-            to={params.dateTo}
-            onChange={(dateFrom, dateTo) => applyParams({ ...params, page: 1, dateFrom, dateTo })}
-          />
-          <Select label={t('filters.perPage')}
-            value={String(params.limit)}
-            onValueChange={(v) => applyParams({ ...params, page: 1, limit: Number(v) })}
-            options={[20, 50, 100, 200].map((n) => ({ value: String(n), label: String(n) }))} />
+          <div className="flex flex-wrap gap-3 items-end">
+            <Select label={t('filters.dateField')}
+              value={params.dateField ?? 'crawledAt'}
+              onValueChange={(v) => applyParams({ ...params, page: 1, dateField: v as AffiliateListParams['dateField'] })}
+              options={DATE_FIELD_OPTIONS} />
+            <DateRangePicker
+              from={params.dateFrom}
+              to={params.dateTo}
+              onChange={(dateFrom, dateTo) => applyParams({ ...params, page: 1, dateFrom, dateTo })}
+            />
+            <Select label={t('filters.perPage')}
+              value={String(params.limit)}
+              onValueChange={(v) => applyParams({ ...params, page: 1, limit: Number(v) })}
+              options={[20, 50, 100, 200].map((n) => ({ value: String(n), label: String(n) }))} />
+          </div>
         </div>
       </div>
 

@@ -985,6 +985,19 @@ export interface DiscoverAutoStatus {
     // distinct from `paused`, which is automatic/temporary (account cooldown).
     disabled?: boolean;
   } | null;
+  // FlareSolverr queue (continuous mode only) — domains whose homepage probe
+  // hit a Cloudflare challenge get handed off here instead of blocking a crawl
+  // slot on solveChallenge() directly. See backend's _fsWorker for the queue
+  // mechanics. pendingCount is read fresh from crawl_queue on every status
+  // poll, so it stays accurate across a process restart.
+  flareSolverr?: {
+    activeCount: number;
+    currentDomain: string | null;
+    maxConcurrent: number;
+    solvedCount: number;
+    failedCount: number;
+    pendingCount: number | null;
+  } | null;
 }
 
 export interface CrawlDomainsBatchStatus {

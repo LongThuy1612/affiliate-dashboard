@@ -2092,6 +2092,46 @@ function DiscoverGoogleAutoPanel() {
           </div>
         )}
 
+        {/* FlareSolverr queue (continuous mode) — domains whose homepage probe
+            hit a Cloudflare challenge wait here instead of blocking a crawl
+            slot on solveChallenge() directly. See backend's _fsWorker. */}
+        {s && s.flareSolverr && (
+          <div className="rounded-lg border border-[var(--border)] p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold text-[var(--text-muted)]">FlareSolverr (Cloudflare)</p>
+              {s.flareSolverr.currentDomain && (
+                <span className="text-[10px] font-medium text-amber-400 flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  Đang giải: {s.flareSolverr.currentDomain}
+                </span>
+              )}
+            </div>
+            {(s.flareSolverr.pendingCount ?? 0) > 10 && (
+              <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-400">
+                ⚠ Hàng chờ FlareSolverr đang tồn đọng ({s.flareSolverr.pendingCount} domain) — crawl có thể chậm lại do nghẽn ở bước giải Cloudflare
+              </div>
+            )}
+            <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
+              <div>
+                <p className="text-[var(--text-muted)]">Đang chờ</p>
+                <p className="font-bold text-purple-400 tabular-nums">{s.flareSolverr.pendingCount ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-muted)]">Đang giải</p>
+                <p className="font-bold text-amber-400 tabular-nums">{s.flareSolverr.activeCount}/{s.flareSolverr.maxConcurrent}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-muted)]">Đã giải</p>
+                <p className="font-bold text-green-400 tabular-nums">{s.flareSolverr.solvedCount}</p>
+              </div>
+              <div>
+                <p className="text-[var(--text-muted)]">Thất bại</p>
+                <p className="font-bold text-red-400 tabular-nums">{s.flareSolverr.failedCount}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Auto Lady Tools improve (continuous mode) — accumulate-then-trigger:
             waits for pendingCount to reach the trigger batch size, then runs a
             Lady Tools pass automatically. Replaces the need to manually run
